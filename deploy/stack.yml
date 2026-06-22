@@ -70,7 +70,7 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - rustdesk_hbbs:/data:ro
     networks:
-      - rustpanel_internal
+      - rustdesk_net
     environment:
       - SUPABASE_URL=${SUPABASE_URL}
       - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
@@ -107,9 +107,9 @@ services:
 networks:
   traefik_public:
     external: true
-  rustpanel_internal:
-    driver: overlay
-    attachable: true
+  rustdesk_net:
+    external: true
+    name: rustdesk_net
 
 # ============================================
 # Volumes
@@ -118,4 +118,5 @@ volumes:
   rustdesk_hbbs:
     external: true
     name: rustdesk_hbbs
+
 
