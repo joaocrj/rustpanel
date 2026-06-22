@@ -1,0 +1,25 @@
+{
+  "name": "rustpanel-agent",
+  "version": "1.0.0",
+  "description": "RustPanel Monitoring Agent - Reads RustDesk server logs and syncs to Supabase",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.0",
+    "better-sqlite3": "^11.0.0",
+    "dockerode": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/dockerode": "^3.3.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0"
+  }
+}

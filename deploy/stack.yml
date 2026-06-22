@@ -1,0 +1,109 @@
+# =============================================================
+# RustPanel - Docker Swarm Stack
+# Compatible with Portainer + Traefik
+# =============================================================
+#
+# Deploy:
+#   docker stack deploy -c stack.yml rustpanel
+#
+# Prerequisites:
+#   - Docker Swarm mode enabled
+#   - Traefik running with entrypoint "websecure"
+#   - Network "traefik_public" exists (external)
+#   - RustDesk data volume accessible
+#
+# Environment Variables (set in Portainer or .env):
+#   - SUPABASE_URL
+#   - SUPABASE_SERVICE_ROLE_KEY
+#   - VITE_SUPABASE_URL
+#   - VITE_SUPABASE_ANON_KEY
+#   - RUSTDESK_DATA_PATH (host path to RustDesk data dir)
+#
+
+version: "3.8"
+
+services:
+  # ============================================
+  # Frontend (React + Nginx)
+  # ============================================
+  frontend:
+    image: ghcr.io/joaocrj/rustpanel-frontend:latest
+    networks:
+      - traefik_public
+    deploy:
+      mode: replicated
+      replicas: 1
+      labels:
+        - traefik.enable=true
+        - traefik.http.routers.rustpanel.rule=Host(`rustpanel.joaocrj.com.br`)
+        - traefik.http.routers.rustpanel.entrypoints=websecure
+        - traefik.http.routers.rustpanel.tls=true
+        - traefik.http.routers.rustpanel.tls.certresolver=letsencrypt
+        - traefik.http.services.rustpanel.loadbalancer.server.port=80
+        # Security headers middleware
+        - traefik.http.middlewares.rustpanel-headers.headers.framedeny=true
+        - traefik.http.middlewares.rustpanel-headers.headers.stsSeconds=31536000
+        - traefik.http.middlewares.rustpanel-headers.headers.stsIncludeSubdomains=true
+        - traefik.http.routers.rustpanel.middlewares=rustpanel-headers
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.25"
+        reservations:
+          memory: 32M
+          cpus: "0.05"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+
+  # ============================================
+  # Monitoring Agent (Node.js)
+  # ============================================
+  agent:
+    image: ghcr.io/joaocrj/rustpanel-agent:latest
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ${RUSTDESK_DATA_PATH:-/opt/rustdesk/data}:/data:ro
+    networks:
+      - rustpanel_internal
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - HBBS_CONTAINER_NAME=${HBBS_CONTAINER_NAME:-hbbs}
+      - HBBR_CONTAINER_NAME=${HBBR_CONTAINER_NAME:-hbbr}
+      - SQLITE_DB_PATH=/data/db_v2.sqlite3
+      - PEER_SYNC_INTERVAL_MS=60000
+      - HEARTBEAT_TIMEOUT_MS=300000
+      - LOG_LEVEL=info
+    deploy:
+      mode: replicated
+      replicas: 1
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.50"
+        reservations:
+          memory: 64M
+          cpus: "0.10"
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+      update_config:
+        parallelism: 1
+        delay: 10s
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  traefik_public:
+    external: true
+  rustpanel_internal:
+    driver: overlay
+    attachable: true
