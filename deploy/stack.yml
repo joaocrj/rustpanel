@@ -29,7 +29,7 @@ services:
   frontend:
     image: ghcr.io/joaocrj/rustpanel-frontend:latest
     networks:
-      - traefik_public
+      - JoaoCRJNET
     deploy:
       mode: replicated
       replicas: 1
@@ -105,7 +105,7 @@ services:
 # Networks
 # ============================================
 networks:
-  traefik_public:
+  JoaoCRJNET:
     external: true
   rustdesk_net:
     external: true
