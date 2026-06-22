@@ -11,7 +11,7 @@ RUN apk add --no-cache python3 make g++ sqlite
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm ci --no-audit --omit=dev && npm cache clean --force
+RUN npm install --no-audit --omit=dev && npm cache clean --force
 
 COPY . .
 RUN npm run build
