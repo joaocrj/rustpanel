@@ -82,6 +82,17 @@ export class SupabaseService {
     }
   }
 
+  async getPeerByIp(ip: string): Promise<string | null> {
+    const { data, error } = await this.client
+      .from('peers')
+      .select('rustdesk_id')
+      .eq('ip_public', ip)
+      .limit(1);
+
+    if (error || !data || data.length === 0) return null;
+    return data[0].rustdesk_id;
+  }
+
   async markOfflinePeers(timeoutMs: number) {
     const threshold = new Date(Date.now() - timeoutMs).toISOString();
 

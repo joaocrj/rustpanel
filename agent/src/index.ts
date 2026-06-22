@@ -122,8 +122,21 @@ async function main() {
       const relay = activeRelays.get(event.uuid);
       if (relay) {
         logger.info(`Relay paired: ${event.uuid} from ${relay.ip}`);
-        // We don't have the rustdesk_id in relay logs, but we track the IP
-        // The session will be created when we correlate with peer data
+        // Correlate the relay IP with the registered peer and create a session
+        try {
+          const rustdeskId = await supabase.getPeerByIp(relay.ip);
+          if (rustdeskId) {
+            await supabase.createSession({
+              rustdesk_id: rustdeskId,
+              ip_public: relay.ip,
+              relay_uuid: event.uuid,
+            });
+          } else {
+            logger.warn(`Could not correlate relay session ${event.uuid} (IP: ${relay.ip}) with any registered peer`);
+          }
+        } catch (err) {
+          logger.error(`Error correlating session: ${err}`);
+        }
       }
     }
 
