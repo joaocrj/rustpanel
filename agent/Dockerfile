@@ -11,10 +11,13 @@ RUN apk add --no-cache python3 make g++ sqlite
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm install --no-audit --omit=dev && npm cache clean --force
+RUN npm install --no-audit
 
 COPY . .
 RUN npm run build
+
+# Prune devDependencies to keep the image lightweight
+RUN npm prune --omit=dev && npm cache clean --force
 
 # Remove source and dev files
 RUN rm -rf src tsconfig.json
