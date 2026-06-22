@@ -3,6 +3,7 @@
 // =============================================================
 
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
+import WebSocket from 'ws';
 import { logger } from '../utils/logger.js';
 import type { AgentConfig } from '../config.js';
 
@@ -12,6 +13,9 @@ export class SupabaseService {
   constructor(config: AgentConfig) {
     this.client = createClient(config.supabaseUrl, config.supabaseServiceRoleKey, {
       auth: { persistSession: false },
+      realtime: {
+        transport: WebSocket as any,
+      },
     });
   }
 
