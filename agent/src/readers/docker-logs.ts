@@ -18,12 +18,36 @@ export class DockerLogStream {
    * Stream logs from a Docker container, calling onLine for each new line.
    * Only follows new logs (since now).
    */
+  /**
+   * Helper to find container ID by exact name or partial prefix/containment match.
+   * Crucial for Docker Swarm where container names are dynamic (e.g. rustdesk_hbbs.1.xxxx).
+   */
+  private async findContainerId(searchName: string): Promise<string> {
+    const containers = await this.docker.listContainers({ all: false });
+
+    // 1. Try exact match (leading slash is added by Docker daemon in Name)
+    const exactMatch = containers.find(c =>
+      c.Names.some(name => name === `/${searchName}` || name === searchName)
+    );
+    if (exactMatch) return exactMatch.Id;
+
+    // 2. Try prefix/containment match (e.g. "rustdesk_hbbs.1.xxx" matches "hbbs")
+    const partialMatch = containers.find(c =>
+      c.Names.some(name => name.includes(searchName))
+    );
+    if (partialMatch) return partialMatch.Id;
+
+    throw new Error(`no running container matches name or prefix "${searchName}"`);
+  }
+
   async streamLogs(
     containerName: string,
     onLine: (line: string) => void
   ): Promise<void> {
     try {
-      const container = this.docker.getContainer(containerName);
+      logger.info(`Searching for container matching "${containerName}"...`);
+      const containerId = await this.findContainerId(containerName);
+      const container = this.docker.getContainer(containerId);
       const info = await container.inspect();
       logger.info(`Connected to container: ${info.Name} (${info.Id.slice(0, 12)})`);
 
@@ -38,12 +62,9 @@ export class DockerLogStream {
       let buffer = '';
 
       stream.on('data', (chunk: Buffer) => {
-        // Docker stream multiplexing: first 8 bytes are header
-        // STREAM_TYPE(1) + 0(3) + SIZE(4)
         let data = chunk.toString('utf-8');
 
         // Strip Docker stream header bytes if present
-        // Header is: [stream_type, 0, 0, 0, size1, size2, size3, size4]
         if (chunk.length > 8 && (chunk[0] === 1 || chunk[0] === 2)) {
           data = chunk.subarray(8).toString('utf-8');
         }
@@ -66,7 +87,6 @@ export class DockerLogStream {
 
       stream.on('end', () => {
         logger.warn(`Stream ended for ${containerName}, will attempt reconnect...`);
-        // Retry after 5 seconds
         setTimeout(() => {
           this.streamLogs(containerName, onLine).catch((e) =>
             logger.error(`Reconnect failed for ${containerName}: ${e}`)
@@ -74,7 +94,7 @@ export class DockerLogStream {
         }, 5000);
       });
     } catch (error) {
-      logger.error(`Failed to stream logs from ${containerName}: ${error}`);
+      logger.error(`Failed to stream logs from ${containerName}: ${(error as Error).message || error}`);
       // Retry after 10 seconds
       setTimeout(() => {
         this.streamLogs(containerName, onLine).catch((e) =>

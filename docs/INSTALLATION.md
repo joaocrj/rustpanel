@@ -66,7 +66,7 @@ git add .
 git commit -m "feat: initial project structure"
 
 # Criar repo no GitHub e adicionar remote
-git remote add origin https://github.com/SEU-USUARIO/rustpanel.git
+git remote add origin https://github.com/joaocrj/rustpanel.git
 git branch -M main
 git push -u origin main
 
@@ -84,11 +84,8 @@ git push -u origin develop
 ```bash
 cd frontend
 
-# Build da imagem
-docker build \
-  --build-arg VITE_SUPABASE_URL=https://SEU-PROJETO.supabase.co \
-  --build-arg VITE_SUPABASE_ANON_KEY=SUA-ANON-KEY \
-  -t ghcr.io/SEU-USUARIO/rustpanel-frontend:latest .
+# Build da imagem (no Windows PowerShell, use crase ` no lugar de \ para quebra de linha)
+docker build --build-arg VITE_SUPABASE_URL=https://lznygimwqxfvfcpqntag.supabase.co --build-arg VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx6bnlnaW13cXhmdmZjcHFudGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxMjI3MDksImV4cCI6MjA5NzY5ODcwOX0.Ct1L2LwB-Mhysg_SN7gfNUZ4Brdjt5XB-RNrUitVyy0 -t ghcr.io/joaocrj/rustpanel-frontend:latest .
 ```
 
 ### Agent
@@ -100,16 +97,16 @@ cd agent
 npm install
 
 # Build da imagem
-docker build -t ghcr.io/SEU-USUARIO/rustpanel-agent:latest .
+docker build -t ghcr.io/joaocrj/rustpanel-agent:latest .
 ```
 
-### Push para Registry (se usando GitHub Container Registry)
+### Push para Registry (usando GitHub Container Registry)
 
 ```bash
-echo $GITHUB_TOKEN | docker login ghcr.io -u SEU-USUARIO --password-stdin
+echo $GITHUB_TOKEN | docker login ghcr.io -u joaocrj --password-stdin
 
-docker push ghcr.io/SEU-USUARIO/rustpanel-frontend:latest
-docker push ghcr.io/SEU-USUARIO/rustpanel-agent:latest
+docker push ghcr.io/joaocrj/rustpanel-frontend:latest
+docker push ghcr.io/joaocrj/rustpanel-agent:latest
 ```
 
 ---
@@ -119,38 +116,26 @@ docker push ghcr.io/SEU-USUARIO/rustpanel-agent:latest
 ### 4.1 Verificar redes existentes
 
 ```bash
-# Deve existir a rede do Traefik
+# Deve existir a rede do Traefik (ajuste o nome se for diferente de traefik_public)
 docker network ls | grep traefik_public
 
 # Se não existir:
 docker network create --driver overlay --attachable traefik_public
 ```
 
-### 4.2 Identificar o path dos dados do RustDesk
-
-```bash
-# Encontrar o volume montado no container hbbs
-docker inspect hbbs | grep -A5 "Mounts"
-
-# O path do host geralmente é algo como:
-# /opt/rustdesk/data ou /root/rustdesk/data
-# Deve conter o arquivo db_v2.sqlite3
-```
-
-### 4.3 Criar arquivo .env no servidor
+### 4.2 Criar arquivo .env no servidor
 
 ```bash
 # No servidor VPS, crie o arquivo de ambiente
 cat > /opt/rustpanel/.env << 'EOF'
-SUPABASE_URL=https://SEU-PROJETO.supabase.co
+SUPABASE_URL=https://lznygimwqxfvfcpqntag.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=SUA-SERVICE-ROLE-KEY
-RUSTDESK_DATA_PATH=/opt/rustdesk/data
 HBBS_CONTAINER_NAME=hbbs
 HBBR_CONTAINER_NAME=hbbr
 EOF
 ```
 
-### 4.4 Deploy via Docker Stack
+### 4.3 Deploy via Docker Stack
 
 ```bash
 cd deploy
@@ -162,16 +147,17 @@ export $(cat /opt/rustpanel/.env | xargs)
 docker stack deploy -c stack.yml rustpanel
 ```
 
-### 4.5 Deploy via Portainer
+### 4.4 Deploy via Portainer
 
 1. Acesse seu Portainer
 2. Vá em **Stacks → Add Stack**
 3. Nome: `rustpanel`
 4. Cole o conteúdo de `deploy/stack.yml`
 5. Adicione as variáveis de ambiente:
-   - `SUPABASE_URL`
-   - `SUPABASE_SERVICE_ROLE_KEY`
-   - `RUSTDESK_DATA_PATH`
+   - `SUPABASE_URL` (https://lznygimwqxfvfcpqntag.supabase.co)
+   - `SUPABASE_SERVICE_ROLE_KEY` (sua service role key obtida do Supabase)
+   - `HBBS_CONTAINER_NAME` (opcional, padrão: `hbbs`)
+   - `HBBR_CONTAINER_NAME` (opcional, padrão: `hbbr`)
 6. Clique **Deploy the stack**
 
 ---
