@@ -74,16 +74,16 @@ export class SqliteReader {
           FROM peer_ip
           ORDER BY last_update DESC
         `).all() as PeerIpRecord[];
-        logger.debug(`Read ${ipRows.length} IP mappings from peer_ip table`);
+        logger.info(`Read ${ipRows.length} IP mappings from SQLite peer_ip table`);
 
         // Store in module-level cache for lookup
         peerIpCache.clear();
         for (const row of ipRows) {
           peerIpCache.set(row.peer_id, row);
         }
-      } catch {
+      } catch (err: any) {
         // peer_ip table may not exist in older RustDesk versions
-        logger.debug('peer_ip table not found — IP lookup will rely solely on log streams');
+        logger.warn(`peer_ip table query failed: ${err?.message || err}. IP lookup will rely solely on log streams.`);
       }
 
       db.close();
