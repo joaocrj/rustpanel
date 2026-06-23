@@ -96,6 +96,45 @@ export class SqliteReader {
   }
 
   /**
+   * Look up a peer's RustDesk ID by public IP using the peer_ip table.
+   * Returns the peer ID string or null if not found.
+   * This is the critical correlation function — it bridges the gap
+   * between relay IPs (from HBBR logs) and registered peer IDs (from SQLite).
+   */
+  lookupPeerIdByIp(ip: string): string | null {
+    if (!existsSync(this.dbPath)) {
+      logger.warn(`SQLite database not found at ${this.dbPath} (IP lookup)`);
+      return null;
+    }
+
+    try {
+      const db = new Database(this.dbPath, { readonly: true });
+
+      // peer_ip table: peer_id (text), ip (text), port (int), last_update (text)
+      const row = db.prepare(`
+        SELECT peer_id
+        FROM peer_ip
+        WHERE ip = ?
+        ORDER BY last_update DESC
+        LIMIT 1
+      `).get(ip) as { peer_id: string } | undefined;
+
+      db.close();
+
+      if (row) {
+        logger.info(`SQLite IP lookup: ${ip} → ${row.peer_id}`);
+        return row.peer_id;
+      }
+
+      return null;
+    } catch {
+      // Table may not exist or query may fail
+      logger.debug(`SQLite IP lookup failed for ${ip} (table may not exist)`);
+      return null;
+    }
+  }
+
+  /**
    * Parse the info field from SQLite peer to extract hostname and OS
    */
   static parseInfo(info: string | undefined): { hostname?: string; os?: string; version?: string } {

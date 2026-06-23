@@ -342,11 +342,21 @@ async function main() {
             // 1. Try in-memory IP map (instant, most reliable)
             let id = ipToPeerId.get(ip);
 
-            // 2. Fallback: query Supabase
+            // 2. Fallback: query SQLite peer_ip table directly (most accurate)
+            if (!id) {
+              const sqliteId = sqliteReader.lookupPeerIdByIp(ip);
+              if (sqliteId) {
+                id = sqliteId;
+                // Cache for future lookups
+                ipToPeerId.set(ip, sqliteId);
+                logger.info(`IP ${ip} resolved to peer ${sqliteId} via SQLite peer_ip table`);
+              }
+            }
+
+            // 3. Fallback: query Supabase peers table
             if (!id) {
               id = (await supabase.getPeerByIp(ip)) ?? undefined;
               if (id) {
-                // Cache for future lookups
                 ipToPeerId.set(ip, id);
               }
             }
