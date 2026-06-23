@@ -19,6 +19,23 @@ export interface SqlitePeer {
   status?: number;
 }
 
+export interface PeerIpRecord {
+  peer_id: string;
+  ip: string;
+  port: number;
+  last_update: string;
+}
+
+/**
+ * Module-level cache of peer IP mappings from SQLite peer_ip table.
+ * Populated during getRegisteredPeers() and accessible via getPeerIpCache().
+ */
+const peerIpCache = new Map<string, PeerIpRecord>();
+
+export function getPeerIpCache(): Map<string, PeerIpRecord> {
+  return peerIpCache;
+}
+
 export class SqliteReader {
   private dbPath: string;
 
@@ -49,6 +66,25 @@ export class SqliteReader {
         FROM peer
         ORDER BY created_at DESC
       `).all() as SqlitePeer[];
+
+      // Also query peer_ip table to build IP → peer mapping
+      try {
+        const ipRows = db.prepare(`
+          SELECT peer_id, ip, port, last_update
+          FROM peer_ip
+          ORDER BY last_update DESC
+        `).all() as PeerIpRecord[];
+        logger.debug(`Read ${ipRows.length} IP mappings from peer_ip table`);
+
+        // Store in module-level cache for lookup
+        peerIpCache.clear();
+        for (const row of ipRows) {
+          peerIpCache.set(row.peer_id, row);
+        }
+      } catch {
+        // peer_ip table may not exist in older RustDesk versions
+        logger.debug('peer_ip table not found — IP lookup will rely solely on log streams');
+      }
 
       db.close();
       logger.debug(`Read ${rows.length} peers from SQLite`);

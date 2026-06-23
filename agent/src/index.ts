@@ -5,7 +5,7 @@
 import { loadConfig } from './config.js';
 import { setLogLevel, logger } from './utils/logger.js';
 import { DockerLogStream } from './readers/docker-logs.js';
-import { SqliteReader } from './readers/sqlite-reader.js';
+import { SqliteReader, getPeerIpCache } from './readers/sqlite-reader.js';
 import { SupabaseService } from './services/supabase.js';
 import { parseHbbsLine } from './parsers/hbbs-parser.js';
 import { parseHbbrLine, resetHbbrParserState } from './parsers/hbbr-parser.js';
@@ -53,10 +53,27 @@ async function main() {
     const peers = sqliteReader.getRegisteredPeers();
     let newCount = 0;
 
+    // Populate IP map from SQLite peer_ip table (fast, reliable fallback)
+    const ipCache = getPeerIpCache();
+    let ipMapLoaded = 0;
+    for (const [peerId, record] of ipCache) {
+      if (record.ip && !ipToPeerId.has(record.ip)) {
+        ipToPeerId.set(record.ip, peerId);
+        ipMapLoaded++;
+      }
+    }
+    if (ipMapLoaded > 0) {
+      logger.info(`Loaded ${ipMapLoaded} IP mappings from SQLite peer_ip table`);
+    }
+
     for (const peer of peers) {
       if (!peer.id) continue;
 
       const info = SqliteReader.parseInfo(peer.info);
+
+      // Update IP in Supabase if we have it from SQLite
+      const ipRecord = ipCache.get(peer.id);
+      const ipPublic = ipRecord?.ip;
 
       // Use registerPeerFromSqlite (NOT upsertPeer) to avoid updating
       // last_seen — that would break the heartbeat offline detection.
@@ -66,6 +83,18 @@ async function main() {
         os: info.os,
         info: peer.info ? { raw: peer.info, version: info.version } : {},
       });
+
+      // Also upsert IP if available (silently, without resetting last_seen)
+      if (ipPublic) {
+        const { error: ipErr } = await supabase.client
+          .from('peers')
+          .update({ ip_public: ipPublic })
+          .eq('rustdesk_id', peer.id)
+          .is('ip_public', null); // Only set if null, don't overwrite existing
+        if (!ipErr) {
+          logger.debug(`Set IP for peer ${peer.id} → ${ipPublic} (from SQLite)`);
+        }
+      }
 
       if (!knownPeers.has(peer.id)) {
         newCount++;
