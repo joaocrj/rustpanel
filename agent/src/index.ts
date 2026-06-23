@@ -1,5 +1,5 @@
 // =============================================================
-// RustPanel Agent - Main Entry Point
+// RustPanel Agent - Main Entry Point (v2)
 // =============================================================
 
 import { loadConfig } from './config.js';
@@ -8,12 +8,12 @@ import { DockerLogStream } from './readers/docker-logs.js';
 import { SqliteReader } from './readers/sqlite-reader.js';
 import { SupabaseService } from './services/supabase.js';
 import { parseHbbsLine } from './parsers/hbbs-parser.js';
-import { parseHbbrLine } from './parsers/hbbr-parser.js';
+import { parseHbbrLine, resetHbbrParserState } from './parsers/hbbr-parser.js';
 
 async function main() {
   console.log(`
   ╔══════════════════════════════════════╗
-  ║       🛡️  RustPanel Agent v1.0       ║
+  ║       🛡️  RustPanel Agent v2.0       ║
   ║   RustDesk Monitoring Service        ║
   ╚══════════════════════════════════════╝
   `);
@@ -28,24 +28,33 @@ async function main() {
   logger.info(`SQLite path: ${config.sqliteDbPath}`);
   logger.info(`Peer sync interval: ${config.peerSyncIntervalMs}ms`);
   logger.info(`Heartbeat timeout: ${config.heartbeatTimeoutMs}ms`);
+  logger.info(`Heartbeat grace: ${config.heartbeatGraceMs}ms`);
 
   // Initialize services
   const supabase = new SupabaseService(config);
   const dockerLogs = new DockerLogStream();
   const sqliteReader = new SqliteReader(config);
 
-  // Track known peers for deduplication
+  // -------------------------------------------------------
+  // In-Memory IP → RustDesk ID Map
+  // This is the critical correlation layer. It is populated
+  // from two sources:
+  //   1. SQLite sync (foundational, all known peers)
+  //   2. HBBS log events (real-time, as peers connect)
+  // -------------------------------------------------------
+  const ipToPeerId = new Map<string, string>();
   const knownPeers = new Set<string>();
 
   // -------------------------------------------------------
-  // 1. Initial SQLite sync — load all registered peers
+  // 1. SQLite Sync — load registered peers
   // -------------------------------------------------------
   async function syncPeersFromSqlite() {
     logger.info('Syncing peers from SQLite...');
     const peers = sqliteReader.getRegisteredPeers();
+    let newCount = 0;
 
     for (const peer of peers) {
-      if (!peer.id || knownPeers.has(peer.id)) continue;
+      if (!peer.id) continue;
 
       const info = SqliteReader.parseInfo(peer.info);
 
@@ -53,17 +62,38 @@ async function main() {
         rustdesk_id: peer.id,
         hostname: info.hostname,
         os: info.os,
-        info: peer.info ? { raw: peer.info } : {},
+        info: peer.info ? { raw: peer.info, version: info.version } : {},
       });
 
-      knownPeers.add(peer.id);
+      if (!knownPeers.has(peer.id)) {
+        newCount++;
+        knownPeers.add(peer.id);
+      }
     }
 
-    logger.info(`SQLite sync complete. ${peers.length} peers found, ${knownPeers.size} tracked`);
+    logger.info(`SQLite sync complete. ${peers.length} peers found, ${knownPeers.size} tracked (new: ${newCount})`);
+  }
+
+  // -------------------------------------------------------
+  // 1.1 IP Map Sync — Load known IPs from Supabase
+  // -------------------------------------------------------
+  async function syncIpMapFromSupabase() {
+    try {
+      const dbPeers = await supabase.getAllPeersWithIp();
+      for (const p of dbPeers) {
+        if (p.ip_public) {
+          ipToPeerId.set(p.ip_public, p.rustdesk_id);
+        }
+      }
+      logger.info(`Loaded ${dbPeers.length} IP mappings from Supabase. IP map size: ${ipToPeerId.size} entries`);
+    } catch (err) {
+      logger.error(`Failed to load IP mappings from Supabase: ${err}`);
+    }
   }
 
   // Initial sync
   await syncPeersFromSqlite();
+  await syncIpMapFromSupabase();
 
   // Periodic sync
   setInterval(async () => {
@@ -81,10 +111,15 @@ async function main() {
     const event = parseHbbsLine(line);
     if (!event) return;
 
-    logger.debug(`HBBS event: ${event.type} | peer=${event.peerId} ip=${event.ip}`);
-
     if (event.type === 'peer_register' && event.peerId) {
-      // Upsert peer and mark as active
+      logger.debug(`HBBS peer_register: ID=${event.peerId} IP=${event.ip || 'unknown'}`);
+
+      // Update in-memory IP map
+      if (event.ip) {
+        ipToPeerId.set(event.ip, event.peerId);
+      }
+
+      // Upsert peer and mark as online
       await supabase.upsertPeer({
         rustdesk_id: event.peerId,
         ip_public: event.ip,
@@ -93,9 +128,23 @@ async function main() {
       knownPeers.add(event.peerId);
     }
 
+    if (event.type === 'peer_activity' && event.peerId) {
+      logger.debug(`HBBS peer_activity: ID=${event.peerId}`);
+      // Mark peer as active without changing IP
+      await supabase.updatePeerLastSeen(event.peerId);
+      knownPeers.add(event.peerId);
+    }
+
     if (event.type === 'tcp_connection' && event.ip) {
-      // TCP connection detected — we know the IP is active but may not have the peer ID
-      logger.debug(`TCP connection from ${event.ip}:${event.port}`);
+      // TCP/IP-only event — we know the IP is active but don't have the peer ID
+      // Look up in our IP map to mark the peer as active
+      const mappedId = ipToPeerId.get(event.ip);
+      if (mappedId) {
+        logger.debug(`HBBS tcp_connection: IP=${event.ip} → mapped to ID=${mappedId}`);
+        await supabase.updatePeerLastSeen(mappedId, event.ip);
+      } else {
+        logger.debug(`HBBS tcp_connection from ${event.ip}:${event.port} (no peer mapping)`);
+      }
     }
   });
 
@@ -106,64 +155,96 @@ async function main() {
   const activeRelays = new Map<string, { ip: string; timestamp: Date }>();
 
   dockerLogs.streamLogs(config.hbbrContainerName, async (line) => {
+    // Reset HBBR parser state on each new stream connection
+    // (handled implicitly; resetHbbrParserState is called on reconnect)
+
     const event = parseHbbrLine(line);
     if (!event) return;
 
-    logger.debug(`HBBR event: ${event.type} | uuid=${event.uuid} ip=${event.ip}`);
-
     if (event.type === 'relay_request' && event.uuid && event.ip) {
-      // New relay session starting
+      // New relay session starting — store for correlation
       activeRelays.set(event.uuid, { ip: event.ip, timestamp: event.timestamp });
-      logger.info(`Relay request: ${event.uuid} from ${event.ip}`);
+      logger.debug(`HBBR relay_request: UUID=${event.uuid} IP=${event.ip}`);
     }
 
     if (event.type === 'relay_paired' && event.uuid) {
-      // Relay paired — session is now active
+      // Relay paired — both sides connected, session is forming
       const relay = activeRelays.get(event.uuid);
-      if (relay) {
-        logger.info(`Relay paired: ${event.uuid} from ${relay.ip}`);
-        // Correlate the relay IP with the registered peer and create a session
+      const ip = event.ip || relay?.ip;
+
+      if (ip) {
+        logger.info(`HBBR relay_paired: UUID=${event.uuid} IP=${ip}`);
+
+        // Correlate the relay IP with a registered peer
         try {
-          const rustdeskId = await supabase.getPeerByIp(relay.ip);
+          // 1. Try in-memory IP map (instant, most reliable)
+          let rustdeskId: string | undefined = ipToPeerId.get(ip);
+
+          // 2. Fallback: query Supabase
+          if (!rustdeskId) {
+            rustdeskId = (await supabase.getPeerByIp(ip)) ?? undefined;
+            if (rustdeskId) {
+              // Cache for future lookups
+              ipToPeerId.set(ip, rustdeskId);
+            }
+          }
+
           if (rustdeskId) {
             await supabase.createSession({
               rustdesk_id: rustdeskId,
-              ip_public: relay.ip,
+              ip_public: ip,
               relay_uuid: event.uuid,
             });
           } else {
-            logger.warn(`Could not correlate relay session ${event.uuid} (IP: ${relay.ip}) with any registered peer`);
+            logger.warn(`Could not correlate relay ${event.uuid} (IP: ${ip}) with any peer. IP map has ${ipToPeerId.size} entries.`);
           }
         } catch (err) {
           logger.error(`Error correlating session: ${err}`);
         }
+      } else {
+        logger.warn(`Relay paired ${event.uuid} but no IP available`);
       }
     }
 
-    if (event.type === 'relay_closed' && event.ip) {
-      // Relay session ended
-      logger.info(`Relay closed from ${event.ip}`);
-      await supabase.closeSessionByIp(event.ip);
+    if (event.type === 'relay_active' && event.uuid) {
+      // "Both are raw" — data is actually flowing
+      logger.debug(`HBBR relay_active: UUID=${event.uuid} — data flowing`);
+    }
 
-      // Clean up tracked relays
+    if (event.type === 'relay_closed' && event.ip) {
+      logger.info(`HBBR relay_closed: IP=${event.ip}`);
+
+      // Try to close by UUID first (more precise), then fall back to IP
+      let closedByUuid = false;
       for (const [uuid, data] of activeRelays) {
         if (data.ip === event.ip) {
+          await supabase.closeSessionByUuid(uuid);
           activeRelays.delete(uuid);
+          closedByUuid = true;
         }
+      }
+
+      // Fallback: close by IP if no UUID match found
+      if (!closedByUuid) {
+        await supabase.closeSessionByIp(event.ip);
       }
     }
   });
 
   // -------------------------------------------------------
   // 4. Heartbeat — mark inactive peers as offline
+  //    Uses grace period to avoid false offline marking
   // -------------------------------------------------------
+  const heartbeatInterval = Math.min(config.heartbeatTimeoutMs / 2, 60_000);
+  logger.info(`Heartbeat interval: ${heartbeatInterval}ms, grace: ${config.heartbeatGraceMs}ms`);
+
   setInterval(async () => {
     try {
-      await supabase.markOfflinePeers(config.heartbeatTimeoutMs);
+      await supabase.markOfflinePeers(config.heartbeatGraceMs);
     } catch (err) {
       logger.error(`Heartbeat error: ${err}`);
     }
-  }, Math.min(config.heartbeatTimeoutMs / 2, 60_000));
+  }, heartbeatInterval);
 
   // -------------------------------------------------------
   // 5. Ban monitoring — watch for new bans
@@ -180,6 +261,31 @@ async function main() {
   await checkBans();
 
   // -------------------------------------------------------
+  // 6. Periodic diagnostics — log IP map and relay state
+  //    Also refreshes agent_state so the dashboard stays live
+  // -------------------------------------------------------
+  const startedAt = new Date().toISOString();
+
+  const updateAgentState = async () => {
+    logger.info(`[Diagnostics] IP map: ${ipToPeerId.size} entries | Known peers: ${knownPeers.size} | Active relays: ${activeRelays.size}`);
+    try {
+      await supabase.setState('agent_status', {
+        status: 'running',
+        started_at: startedAt,
+        version: '2.0.0',
+        ip_map_size: ipToPeerId.size,
+        known_peers: knownPeers.size,
+        active_relays: activeRelays.size,
+        last_heartbeat: new Date().toISOString(),
+      });
+    } catch (err) {
+      logger.error(`Failed to update agent state: ${err}`);
+    }
+  };
+
+  setInterval(updateAgentState, 120_000); // Every 2 minutes
+
+  // -------------------------------------------------------
   // Graceful shutdown
   // -------------------------------------------------------
   const shutdown = async () => {
@@ -192,14 +298,18 @@ async function main() {
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  // Mark agent as running
+  // Mark agent as running (initial state)
   await supabase.setState('agent_status', {
     status: 'running',
-    started_at: new Date().toISOString(),
-    version: '1.0.0',
+    started_at: startedAt,
+    version: '2.0.0',
+    ip_map_size: ipToPeerId.size,
+    known_peers: knownPeers.size,
+    active_relays: 0,
+    last_heartbeat: startedAt,
   });
 
-  logger.info('🚀 RustPanel Agent is running');
+  logger.info('🚀 RustPanel Agent v2.0 is running');
 }
 
 main().catch((err) => {

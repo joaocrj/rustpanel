@@ -169,9 +169,13 @@ export function PeersPage() {
                     <td className="text-xs">{peer.hostname || '—'}</td>
                     <td className="text-xs">{peer.os || '—'}</td>
                     <td className="font-mono text-xs">{peer.ip_public || '—'}</td>
-                    <td><StatusBadge status={peer.status} size="sm" /></td>
+                    <td title={`Último contato: ${formatDateTime(peer.last_seen)}`}>
+                      <StatusBadge status={peer.status} size="sm" />
+                    </td>
                     <td className="text-xs">{formatDateTime(peer.first_seen)}</td>
-                    <td className="text-xs">{formatRelativeTime(peer.last_seen)}</td>
+                    <td className="text-xs" title={formatDateTime(peer.last_seen)}>
+                      {formatRelativeTime(peer.last_seen)}
+                    </td>
                     <td className="text-xs">{formatDuration(peer.total_online_seconds)}</td>
                     {canManage && (
                       <td>

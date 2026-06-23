@@ -1,5 +1,5 @@
 // =============================================================
-// RustPanel Agent - SQLite Reader
+// RustPanel Agent - SQLite Reader (v2)
 // Reads db_v2.sqlite3 from RustDesk server
 // =============================================================
 
@@ -62,7 +62,7 @@ export class SqliteReader {
   /**
    * Parse the info field from SQLite peer to extract hostname and OS
    */
-  static parseInfo(info: string | undefined): { hostname?: string; os?: string } {
+  static parseInfo(info: string | undefined): { hostname?: string; os?: string; version?: string } {
     if (!info) return {};
 
     try {
@@ -72,6 +72,7 @@ export class SqliteReader {
         return {
           hostname: parsed.hostname || parsed.device_name || undefined,
           os: parsed.os || parsed.platform || undefined,
+          version: parsed.version || undefined,
         };
       }
 
@@ -81,6 +82,7 @@ export class SqliteReader {
         return {
           hostname: parts[0]?.trim() || undefined,
           os: parts[1]?.trim() || undefined,
+          version: parts[2]?.trim() || undefined,
         };
       }
     } catch {

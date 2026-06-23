@@ -316,11 +316,16 @@ CREATE POLICY "audit_logs_insert_auth" ON audit_logs
     FOR INSERT TO authenticated
     WITH CHECK (true);
 
--- AGENT_STATE: Only service_role can access
+-- AGENT_STATE: Service role can manage everything, authenticated can read status
 CREATE POLICY "agent_state_all" ON agent_state
     FOR ALL TO service_role
     USING (true)
     WITH CHECK (true);
+
+CREATE POLICY "agent_state_select_authenticated" ON agent_state
+    FOR SELECT TO authenticated
+    USING (true);
+
 
 -- =============================================================
 -- REALTIME: Enable realtime for key tables

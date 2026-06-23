@@ -7,23 +7,94 @@ import {
   Activity,
   Clock,
   Zap,
+  Server,
+  CheckCircle2,
+  XCircle,
 } from 'lucide-react';
 import { Header } from '@/components/layout/Header';
 import { StatCard } from '@/components/ui/StatCard';
 import { StatusBadge } from '@/components/ui/StatusBadge';
-import { useDashboardStats, usePeers, useActiveSessions } from '@/hooks/useData';
+import { useDashboardStats, usePeers, useActiveSessions, useAgentStatus } from '@/hooks/useData';
 import { formatRelativeTime, formatDuration } from '@/lib/utils';
 
 export function DashboardPage() {
   const { data: stats, isLoading: statsLoading } = useDashboardStats();
   const { data: recentPeers } = usePeers({ pageSize: 5, sortBy: 'last_seen', sortDir: 'desc' });
   const { data: activeSessions } = useActiveSessions();
+  const { data: agentStatus } = useAgentStatus();
+
+  const isAgentRunning = agentStatus?.status === 'running';
 
   return (
     <div>
       <Header title="Dashboard" subtitle="Visão geral do sistema" />
 
       <div className="p-6 space-y-6">
+        {/* Agent Status Banner */}
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="card p-4"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div
+                className="w-10 h-10 rounded-xl flex items-center justify-center"
+                style={{
+                  background: isAgentRunning
+                    ? 'color-mix(in srgb, var(--color-success) 15%, transparent)'
+                    : 'color-mix(in srgb, var(--color-danger) 15%, transparent)',
+                }}
+              >
+                <Server
+                  className="w-5 h-5"
+                  style={{ color: isAgentRunning ? 'var(--color-success)' : 'var(--color-danger)' }}
+                />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3
+                    className="text-sm font-semibold"
+                    style={{ color: 'var(--color-text-primary)' }}
+                  >
+                    RustPanel Agent
+                  </h3>
+                  {isAgentRunning ? (
+                    <CheckCircle2 className="w-4 h-4" style={{ color: 'var(--color-success)' }} />
+                  ) : (
+                    <XCircle className="w-4 h-4" style={{ color: 'var(--color-danger)' }} />
+                  )}
+                </div>
+                <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                  {isAgentRunning
+                    ? `v${agentStatus?.version || '?'} • Rodando desde ${formatRelativeTime(agentStatus?.started_at || null)}`
+                    : 'Agent não está rodando ou não reportou status'}
+                </p>
+              </div>
+            </div>
+            {isAgentRunning && agentStatus && (
+              <div className="flex items-center gap-4">
+                <div className="text-right">
+                  <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                    Mapa IP→ID
+                  </p>
+                  <p className="text-sm font-mono font-semibold" style={{ color: 'var(--color-primary)' }}>
+                    {agentStatus.ip_map_size ?? '—'}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-xs" style={{ color: 'var(--color-text-muted)' }}>
+                    Peers Rastreados
+                  </p>
+                  <p className="text-sm font-mono font-semibold" style={{ color: 'var(--color-primary)' }}>
+                    {agentStatus.known_peers ?? '—'}
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+        </motion.div>
+
         {/* Stats Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7 gap-4">
           <StatCard

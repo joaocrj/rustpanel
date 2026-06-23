@@ -22,6 +22,31 @@ export function useDashboardStats() {
   });
 }
 
+export interface AgentStatus {
+  status: string;
+  started_at: string;
+  version: string;
+  ip_map_size?: number;
+  known_peers?: number;
+}
+
+export function useAgentStatus() {
+  return useQuery({
+    queryKey: ['agent-status'],
+    queryFn: async (): Promise<AgentStatus | null> => {
+      const { data, error } = await supabase
+        .from('agent_state')
+        .select('value')
+        .eq('key', 'agent_status')
+        .single();
+
+      if (error || !data) return null;
+      return data.value as AgentStatus;
+    },
+    refetchInterval: 30_000,
+  });
+}
+
 // =============================================================
 // Peers
 // =============================================================

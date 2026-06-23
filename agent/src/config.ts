@@ -10,6 +10,7 @@ export interface AgentConfig {
   sqliteDbPath: string;
   peerSyncIntervalMs: number;
   heartbeatTimeoutMs: number;
+  heartbeatGraceMs: number;
   logLevel: string;
 }
 
@@ -30,6 +31,7 @@ export function loadConfig(): AgentConfig {
     sqliteDbPath: getEnv('SQLITE_DB_PATH', '/data/db_v2.sqlite3'),
     peerSyncIntervalMs: parseInt(getEnv('PEER_SYNC_INTERVAL_MS', '60000'), 10),
     heartbeatTimeoutMs: parseInt(getEnv('HEARTBEAT_TIMEOUT_MS', '300000'), 10),
+    heartbeatGraceMs: parseInt(getEnv('HEARTBEAT_GRACE_MS', '600000'), 10),
     logLevel: getEnv('LOG_LEVEL', 'info'),
   };
 }
