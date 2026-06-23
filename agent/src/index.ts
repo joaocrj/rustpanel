@@ -176,21 +176,22 @@ async function main() {
   // Track active relay sessions by UUID
   const activeRelays = new Map<string, { ip: string; timestamp: Date; pairedIp?: string }>();
 
-  // HBBR raw debug — log first 10 lines for format verification
-  let hbbrRawDebugCount = 0;
+  // Log unmatched HBBR lines (for format diagnosis) — log all unmatched up to 50
+  let hbbrUnmatchedCount = 0;
 
   dockerLogs.streamLogs(config.hbbrContainerName, async (line) => {
     // Reset HBBR parser state on each new stream connection
     // (handled implicitly; resetHbbrParserState is called on reconnect)
 
-    // Log first 10 raw HBBR lines for format diagnosis
-    if (hbbrRawDebugCount < 10) {
-      logger.info(`[HBBR-RAW][${hbbrRawDebugCount + 1}/10] ${line}`);
-      hbbrRawDebugCount++;
-    }
-
     const event = parseHbbrLine(line);
-    if (!event) return;
+    if (!event) {
+      // Log unmatched lines so we can discover new log formats
+      if (hbbrUnmatchedCount < 50) {
+        logger.info(`[HBBR-UNMATCHED][${hbbrUnmatchedCount + 1}/50] ${line}`);
+        hbbrUnmatchedCount++;
+      }
+      return;
+    }
 
     if (event.type === 'relay_request' && event.uuid && event.ip) {
       // New relay session starting — store for correlation
