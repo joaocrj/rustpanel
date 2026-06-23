@@ -9,6 +9,7 @@ import { SqliteReader, getPeerIpCache } from './readers/sqlite-reader.js';
 import { SupabaseService } from './services/supabase.js';
 import { parseHbbsLine } from './parsers/hbbs-parser.js';
 import { parseHbbrLine, resetHbbrParserState } from './parsers/hbbr-parser.js';
+import { PassThrough } from 'node:stream';
 
 async function main() {
   console.log(`
@@ -106,7 +107,82 @@ async function main() {
   }
 
   // -------------------------------------------------------
-  // 1.1 IP Map Sync — Load known IPs from Supabase
+  // 1.1 Backfill IP Map from HBBS Docker Logs
+  //     Uses Docker API (dockerode) to read HBBS logs.
+  //     Parses update_pk events to build IP→Peer map.
+  //     This is critical because the live stream starts
+  //     async and may not deliver backlog before first
+  //     relay events arrive.
+  // -------------------------------------------------------
+  async function backfillIpMapFromHbbsLogs() {
+    try {
+      logger.info('Backfilling IP map from HBBS Docker logs...');
+      const Docker = (await import('dockerode')).default;
+      const docker = new Docker({ socketPath: '/var/run/docker.sock' });
+
+      const containers = await docker.listContainers({ all: false });
+      const match = containers.find((c: any) =>
+        c.Names.some((n: string) => n.includes(config.hbbsContainerName))
+      );
+
+      if (!match) {
+        logger.warn('HBBS container not found for backfill');
+        return;
+      }
+
+      const container = docker.getContainer(match.Id);
+
+      // Read logs: multiplexed format (same as streamLogs)
+      const logStream: any = await container.logs({
+        stdout: true,
+        stderr: true,
+        tail: 5000,
+        timestamps: false,
+        follow: false,
+      });
+
+      const rawData: string = await new Promise((resolve, reject) => {
+        const stdout = new PassThrough();
+        const stderr = new PassThrough();
+        (docker as any).modem.demuxStream(logStream, stdout, stderr);
+
+        let data = '';
+        stdout.on('data', (chunk: Buffer) => { data += chunk.toString('utf-8'); });
+        stderr.on('data', (chunk: Buffer) => { data += chunk.toString('utf-8'); });
+        stdout.on('end', () => resolve(data));
+        stdout.on('error', reject);
+      });
+
+      let count = 0;
+      const lines = rawData.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+
+        // Match: update_pk <ID> [::ffff:<IP>]:<PORT>
+        const match = trimmed.match(/(?:update_pk|peer_register|register_pk)\s+(\d+)\s+\[::ffff:([^\]]+)\]/i);
+        if (match) {
+          const peerId = match[1];
+          const ip = match[2];
+          if (!ipToPeerId.has(ip)) {
+            ipToPeerId.set(ip, peerId);
+            count++;
+          }
+        }
+      }
+
+      if (count > 0) {
+        logger.info(`Backfilled ${count} IP mappings from HBBS Docker logs. IP map: ${ipToPeerId.size} entries`);
+      } else {
+        logger.warn('Backfill found 0 IP mappings in HBBS logs — IP map will rely on live stream only');
+      }
+    } catch (err) {
+      logger.warn(`Failed to backfill IP map from HBBS logs: ${err}`);
+    }
+  }
+
+  // -------------------------------------------------------
+  // 1.2 IP Map Sync — Load known IPs from Supabase
   // -------------------------------------------------------
   async function syncIpMapFromSupabase() {
     try {
@@ -124,6 +200,7 @@ async function main() {
 
   // Initial sync
   await syncPeersFromSqlite();
+  await backfillIpMapFromHbbsLogs();
   await syncIpMapFromSupabase();
 
   // Periodic sync
