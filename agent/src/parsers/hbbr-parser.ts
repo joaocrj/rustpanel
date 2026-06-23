@@ -27,13 +27,19 @@ export interface HbbrEvent {
 
 const patterns = {
   // Pro/Modern: New relay request <UUID> from [::ffff:<IP>]:<PORT>
-  relayRequest: /[Nn]ew\s+relay\s+request\s+(\S+)\s+from\s+\[?::ffff:?([\d.]+)\]?:(\d+)/,
+  relayRequest: /[Nn]ew\s+relay\s*request\s+(\S+)\s+from\s+\[?::ffff:?([\d.]+)\]?:(\d+)/,
+
+  // OSS: "Relayrequest <UUID> from [::ffff:<IP>]:<PORT>" (no space between Relay and request)
+  relayRequestNoSpace: /[Rr]elayrequest\s+(\S+)\s+from\s+\[?::ffff:?([\d.]+)\]?:(\d+)/,
 
   // OSS: Relay request: <UUID> from <IP>
   relayRequestSimple: /[Rr]elay\s+request:\s*(\S+)\s+from\s+\[?(?:::ffff:?)?([\d.]+)\]?/i,
 
   // Pro/Modern: Relay request <UUID> from [::ffff:<IP>]:<PORT> got paired
   relayPaired: /[Rr]elay\s*request\s+(\S+)\s+from\s+\[?::ffff:?([\d.]+)\]?:?\d*\s+got\s+paired/,
+
+  // OSS: "Relayrequest <UUID> from [::ffff:<IP>]:<PORT> got paired" (no space)
+  relayPairedNoSpace: /[Rr]elayrequest\s+(\S+)\s+from\s+\[?::ffff:?([\d.]+)\]?:?\d*\s+got\s+paired/,
 
   // OSS: Relay paired: <UUID> from <IP>
   relayPairedSimple: /[Rr]elay\s+paired:\s*(\S+)\s+from\s+\[?(?:::ffff:?)?([\d.]+)\]?/i,
@@ -74,7 +80,20 @@ export function parseHbbrLine(line: string): HbbrEvent | null {
     };
   }
 
-  // 1.1 Relay request (Simple/OSS)
+  // 1.1 Relay request (OSS — no space: "Relayrequest")
+  const requestNoSpaceMatch = line.match(patterns.relayRequestNoSpace);
+  if (requestNoSpaceMatch) {
+    return {
+      type: 'relay_request',
+      timestamp,
+      uuid: requestNoSpaceMatch[1],
+      ip: requestNoSpaceMatch[2],
+      port: parseInt(requestNoSpaceMatch[3], 10),
+      raw: line,
+    };
+  }
+
+  // 1.2 Relay request (Simple/OSS)
   const requestSimpleMatch = line.match(patterns.relayRequestSimple);
   if (requestSimpleMatch) {
     return {
@@ -102,7 +121,22 @@ export function parseHbbrLine(line: string): HbbrEvent | null {
     };
   }
 
-  // 2.1 Relay paired (Simple/OSS)
+  // 2.1 Relay paired (OSS — no space: "Relayrequest ... got paired")
+  const pairedNoSpaceMatch = line.match(patterns.relayPairedNoSpace);
+  if (pairedNoSpaceMatch) {
+    lastPairedUuid = pairedNoSpaceMatch[1];
+    lastPairedIp = pairedNoSpaceMatch[2];
+
+    return {
+      type: 'relay_paired',
+      timestamp,
+      uuid: pairedNoSpaceMatch[1],
+      ip: pairedNoSpaceMatch[2],
+      raw: line,
+    };
+  }
+
+  // 2.2 Relay paired (Simple/OSS)
   const pairedSimpleMatch = line.match(patterns.relayPairedSimple);
   if (pairedSimpleMatch) {
     lastPairedUuid = pairedSimpleMatch[1];

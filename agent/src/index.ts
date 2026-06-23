@@ -112,8 +112,11 @@ async function main() {
   // Log first 5 raw HBBS lines so we can verify the format
   // in production logs if parser issues arise.
   let hbbsRawDebugCount = 0;
+  let hbbsLastLineTime = Date.now();
 
   dockerLogs.streamLogs(config.hbbsContainerName, async (line) => {
+    hbbsLastLineTime = Date.now();
+
     if (hbbsRawDebugCount < 5) {
       logger.info(`[HBBS-RAW][${hbbsRawDebugCount + 1}/5] ${line}`);
       hbbsRawDebugCount++;
@@ -159,11 +162,19 @@ async function main() {
     }
   });
 
+  // Heartbeat check: warn if HBBS stream hasn't delivered data in 5+ minutes
+  setInterval(() => {
+    const secondsSinceLastLine = Math.round((Date.now() - hbbsLastLineTime) / 1000);
+    if (secondsSinceLastLine > 300) {
+      logger.warn(`HBBS stream appears stalled — no lines received in ${secondsSinceLastLine}s (${Math.round(secondsSinceLastLine / 60)}min)`);
+    }
+  }, 120_000);
+
   // -------------------------------------------------------
   // 3. HBBR log streaming — detect relay sessions
   // -------------------------------------------------------
   // Track active relay sessions by UUID
-  const activeRelays = new Map<string, { ip: string; timestamp: Date }>();
+  const activeRelays = new Map<string, { ip: string; timestamp: Date; pairedIp?: string }>();
 
   dockerLogs.streamLogs(config.hbbrContainerName, async (line) => {
     // Reset HBBR parser state on each new stream connection
@@ -176,44 +187,78 @@ async function main() {
       // New relay session starting — store for correlation
       activeRelays.set(event.uuid, { ip: event.ip, timestamp: event.timestamp });
       logger.debug(`HBBR relay_request: UUID=${event.uuid} IP=${event.ip}`);
+
+      // Enrich IP map: relay IPs are valuable for correlation.
+      // Even if we can't map them to a peer ID yet, storing the IP
+      // in the IP map (via reverse lookup from Supabase) helps
+      // future relay_paired events correlate properly.
+      if (!ipToPeerId.has(event.ip)) {
+        const cachedId = await supabase.getPeerByIp(event.ip);
+        if (cachedId) {
+          ipToPeerId.set(event.ip, cachedId);
+          logger.info(`HBBR relay_request: IP=${event.ip} → cached ID=${cachedId} (from Supabase)`);
+        }
+      }
     }
 
     if (event.type === 'relay_paired' && event.uuid) {
       // Relay paired — both sides connected, session is forming
       const relay = activeRelays.get(event.uuid);
-      const ip = event.ip || relay?.ip;
 
-      if (ip) {
-        logger.info(`HBBR relay_paired: UUID=${event.uuid} IP=${ip}`);
+      // Update the paired IP in the activeRelays map if we track this relay
+      if (relay && event.ip) {
+        relay.pairedIp = event.ip;
+      }
+
+      // We check both event.ip and relay.ip to see which one correlates to a registered peer.
+      // One is the operator/controller, the other is the target client/peer.
+      const candidateIps = [event.ip, relay?.ip].filter((ip): ip is string => !!ip);
+
+      if (candidateIps.length > 0) {
+        logger.info(`HBBR relay_paired: UUID=${event.uuid} candidates=[${candidateIps.join(', ')}]`);
 
         // Correlate the relay IP with a registered peer
         try {
-          // 1. Try in-memory IP map (instant, most reliable)
-          let rustdeskId: string | undefined = ipToPeerId.get(ip);
+          let rustdeskId: string | undefined;
+          let correlatedIp: string | undefined;
 
-          // 2. Fallback: query Supabase
-          if (!rustdeskId) {
-            rustdeskId = (await supabase.getPeerByIp(ip)) ?? undefined;
-            if (rustdeskId) {
-              // Cache for future lookups
-              ipToPeerId.set(ip, rustdeskId);
+          for (const ip of candidateIps) {
+            // 1. Try in-memory IP map (instant, most reliable)
+            let id = ipToPeerId.get(ip);
+
+            // 2. Fallback: query Supabase
+            if (!id) {
+              id = (await supabase.getPeerByIp(ip)) ?? undefined;
+              if (id) {
+                // Cache for future lookups
+                ipToPeerId.set(ip, id);
+              }
+            }
+
+            if (id) {
+              rustdeskId = id;
+              correlatedIp = ip;
+              break; // Found the registered peer!
             }
           }
 
-          if (rustdeskId) {
+          if (rustdeskId && correlatedIp) {
+            // Keep peer marked online and active
+            await supabase.updatePeerLastSeen(rustdeskId, correlatedIp);
+
             await supabase.createSession({
               rustdesk_id: rustdeskId,
-              ip_public: ip,
+              ip_public: correlatedIp,
               relay_uuid: event.uuid,
             });
           } else {
-            logger.warn(`Could not correlate relay ${event.uuid} (IP: ${ip}) with any peer. IP map has ${ipToPeerId.size} entries.`);
+            logger.warn(`Could not correlate relay ${event.uuid} (IPs: ${candidateIps.join(', ')}) with any peer. IP map has ${ipToPeerId.size} entries.`);
           }
         } catch (err) {
           logger.error(`Error correlating session: ${err}`);
         }
       } else {
-        logger.warn(`Relay paired ${event.uuid} but no IP available`);
+        logger.warn(`Relay paired ${event.uuid} but no IPs available`);
       }
     }
 
@@ -225,10 +270,10 @@ async function main() {
     if (event.type === 'relay_closed' && event.ip) {
       logger.info(`HBBR relay_closed: IP=${event.ip}`);
 
-      // Try to close by UUID first (more precise), then fall back to IP
+      // Try to close by UUID first (more precise), matching either the requester or paired IP
       let closedByUuid = false;
       for (const [uuid, data] of activeRelays) {
-        if (data.ip === event.ip) {
+        if (data.ip === event.ip || data.pairedIp === event.ip) {
           await supabase.closeSessionByUuid(uuid);
           activeRelays.delete(uuid);
           closedByUuid = true;

@@ -67,38 +67,40 @@ export class DockerLogStream {
       const containerId = await this.findContainerId(containerName);
       const container = this.docker.getContainer(containerId);
       const info = await container.inspect();
-      logger.info(`Connected to container: ${info.Name} (${info.Id.slice(0, 12)})`);
+      const isTty = info.Config.Tty;
+      logger.info(`Connected to container: ${info.Name} (${info.Id.slice(0, 12)}) [TTY: ${isTty}]`);
 
-      // Capture the last 5 minutes of logs + tail 500 lines for initial context.
-      // 5 min window ensures we catch recent peer events even on a quiet network.
-      const sinceTimestamp = Math.floor(Date.now() / 1000) - 300;
+      // Capture the last 24 hours of logs + tail 10000 lines for initial context.
+      // This ensures we backfill peer IP mappings from recent registrations on agent start/restart.
+      const sinceTimestamp = Math.floor(Date.now() / 1000) - 86400;
 
       const rawStream = await container.logs({
         follow: true,
         stdout: true,
         stderr: true,
         since: sinceTimestamp,
-        tail: 500,
+        tail: 10000,
         timestamps: false,
       });
 
-      // -------------------------------------------------------
-      // CRITICAL FIX: Properly demultiplex the Docker log stream.
-      // docker.modem.demuxStream() correctly handles:
-      //   - Multiple frames per chunk
-      //   - Mixed stdout/stderr frames
-      //   - Variable frame sizes
-      // Without this, chunks with multiple frames result in
-      // corrupted log lines (null bytes and garbage at line start).
-      // -------------------------------------------------------
       const stdout = new PassThrough();
       const stderr = new PassThrough();
-      (this.docker as any).modem.demuxStream(rawStream, stdout, stderr);
+
+      if (isTty) {
+        // If TTY is enabled, the log stream is raw text (not multiplexed).
+        // We can pipe it directly.
+        rawStream.pipe(stdout);
+      } else {
+        // If TTY is disabled, the log stream is multiplexed.
+        // We must demultiplex it using demuxStream.
+        (this.docker as any).modem.demuxStream(rawStream, stdout, stderr);
+      }
 
       this.activeStreams.set(containerName, rawStream as unknown as NodeJS.ReadableStream);
       this.lineCounters.set(containerName, 0);
 
       let buffer = '';
+      let firstLineReceived = false;
 
       const processChunk = (chunk: Buffer) => {
         buffer += chunk.toString('utf-8');
@@ -108,6 +110,10 @@ export class DockerLogStream {
         for (const line of lines) {
           const trimmed = line.trim();
           if (trimmed) {
+            if (!firstLineReceived) {
+              firstLineReceived = true;
+              logger.info(`[${containerName}] First log line received — stream is healthy`);
+            }
             onLine(trimmed);
             const count = (this.lineCounters.get(containerName) || 0) + 1;
             this.lineCounters.set(containerName, count);
