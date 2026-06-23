@@ -6,11 +6,20 @@
 # Builds both images for linux/amd64 (VPS compatible).
 # Pushes to ghcr.io/joaocrj/rustpanel-{agent,frontend}:latest
 #
-# Secrets required (set in GitHub repo Settings → Secrets):
-#   VITE_SUPABASE_URL   — Supabase project URL (public)
-#   VITE_SUPABASE_ANON_KEY — Supabase anon key (public)
+# Secrets required (set in GitHub repo Settings → Secrets → Actions):
+#   VITE_SUPABASE_URL      — Supabase project URL (build arg for frontend)
+#   VITE_SUPABASE_ANON_KEY — Supabase anon key (build arg for frontend)
 #
-# The GITHUB_TOKEN is provided automatically by Actions.
+# Permissions required per job:
+#   contents: read      — checkout the private repo
+#   packages: write     — push images to GHCR
+#   actions: write      — read/write GHA layer cache (type=gha)
+#   attestations: write — push OCI attestations alongside the image
+#   id-token: write     — generate OIDC token for provenance signing
+#
+# NOTE: When you explicitly specify `permissions:` in a GitHub Actions
+# job, ALL unspecified permissions default to `none`. So every permission
+# the job needs must be explicitly listed — even actions:write for cache.
 # =============================================================
 
 name: Build & Push Docker Images
@@ -38,8 +47,11 @@ jobs:
     name: Build Agent
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      packages: write
+      contents: read       # checkout private repo
+      packages: write      # push to GHCR
+      actions: write       # read/write GHA layer cache
+      attestations: write  # push OCI attestations
+      id-token: write      # OIDC token for provenance signing
 
     steps:
       - name: Checkout repository
@@ -73,6 +85,8 @@ jobs:
           push: true
           tags: ${{ steps.meta-agent.outputs.tags }}
           labels: ${{ steps.meta-agent.outputs.labels }}
+          provenance: false  # disable provenance to keep image size small
+          sbom: false        # disable SBOM for simplicity
           cache-from: type=gha,scope=agent
           cache-to: type=gha,mode=max,scope=agent
 
@@ -83,8 +97,11 @@ jobs:
     name: Build Frontend
     runs-on: ubuntu-latest
     permissions:
-      contents: read
-      packages: write
+      contents: read       # checkout private repo
+      packages: write      # push to GHCR
+      actions: write       # read/write GHA layer cache
+      attestations: write  # push OCI attestations
+      id-token: write      # OIDC token for provenance signing
 
     steps:
       - name: Checkout repository
@@ -118,6 +135,8 @@ jobs:
           push: true
           tags: ${{ steps.meta-frontend.outputs.tags }}
           labels: ${{ steps.meta-frontend.outputs.labels }}
+          provenance: false  # disable provenance to keep image size small
+          sbom: false        # disable SBOM for simplicity
           build-args: |
             VITE_SUPABASE_URL=${{ secrets.VITE_SUPABASE_URL }}
             VITE_SUPABASE_ANON_KEY=${{ secrets.VITE_SUPABASE_ANON_KEY }}
@@ -136,16 +155,16 @@ jobs:
     steps:
       - name: Summary
         run: |
-          echo "## 🚀 RustPanel Docker Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "## RustPanel Docker Build Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Image | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| rustpanel-agent | ${{ needs.build-agent.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "| rustpanel-frontend | ${{ needs.build-frontend.result }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
-          echo "Run on your VPS:" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "### Deploy to VPS" >> $GITHUB_STEP_SUMMARY
+          echo "Run on your VPS after a successful build:" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
           echo 'docker service update --image ghcr.io/joaocrj/rustpanel-agent:latest rustpanel_agent' >> $GITHUB_STEP_SUMMARY
           echo 'docker service update --image ghcr.io/joaocrj/rustpanel-frontend:latest rustpanel_frontend' >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
