@@ -24,9 +24,44 @@ export class SupabaseService {
   // ---- Peers ----
 
   /**
-   * Upsert a peer record.
-   * On INSERT: sets first_seen = now()
-   * On UPDATE: does NOT overwrite first_seen, only updates provided fields
+   * Register a peer from SQLite data.
+   * IMPORTANT: Does NOT update last_seen or status — only hostname/os/info.
+   * This preserves the heartbeat system integrity:
+   *   - Only HBBS log events should update last_seen → mark peer online
+   *   - Only markOfflinePeers() should change status to offline
+   * Calling upsertPeer (which sets last_seen=now) from the SQLite sync
+   * would keep all peers' last_seen perpetually fresh, breaking heartbeat.
+   */
+  async registerPeerFromSqlite(data: {
+    rustdesk_id: string;
+    hostname?: string;
+    os?: string;
+    info?: Record<string, unknown>;
+  }) {
+    const record: Record<string, unknown> = {
+      rustdesk_id: data.rustdesk_id,
+    };
+
+    // Only set non-null values to avoid overwriting meaningful data with nulls
+    if (data.hostname) record.hostname = data.hostname;
+    if (data.os) record.os = data.os;
+    if (data.info && Object.keys(data.info).length > 0) record.info = data.info;
+
+    const { error } = await this.client
+      .from('peers')
+      .upsert(record, { onConflict: 'rustdesk_id', ignoreDuplicates: false });
+
+    if (error) {
+      logger.error(`Error registering peer ${data.rustdesk_id} from SQLite: ${error.message}`);
+    } else {
+      logger.debug(`Registered peer from SQLite: ${data.rustdesk_id}`);
+    }
+  }
+
+  /**
+   * Upsert a peer record from a live HBBS event.
+   * Sets last_seen to now() — used when a peer actively contacts the server.
+   * This is the ONLY place (besides updatePeerLastSeen) that should update last_seen.
    */
   async upsertPeer(data: {
     rustdesk_id: string;
@@ -34,14 +69,12 @@ export class SupabaseService {
     os?: string;
     ip_public?: string;
     info?: Record<string, unknown>;
-    source?: string;
   }) {
     const record: Record<string, unknown> = {
       rustdesk_id: data.rustdesk_id,
       last_seen: new Date().toISOString(),
     };
 
-    // Only set non-null values to avoid overwriting existing data with null
     if (data.hostname) record.hostname = data.hostname;
     if (data.os) record.os = data.os;
     if (data.ip_public) record.ip_public = data.ip_public;

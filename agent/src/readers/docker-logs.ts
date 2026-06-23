@@ -1,9 +1,22 @@
 // =============================================================
-// RustPanel Agent - Docker Log Stream (v2)
+// RustPanel Agent - Docker Log Stream (v3)
 // Uses Docker API to stream container logs
+// =============================================================
+//
+// IMPORTANT: Docker log streams use a multiplexed format when
+// tty=false (standard for server containers). Each "frame" has:
+//   [stream_type(1)][0][0][0][size(4 bytes, big-endian)][payload]
+//
+// A single "data" event chunk can contain MULTIPLE frames.
+// The v2 code only stripped the header of the first frame,
+// corrupting all subsequent frames in the same chunk.
+//
+// Fix: use docker.modem.demuxStream() which correctly splits
+// the multiplexed stream into separate stdout/stderr PassThroughs.
 // =============================================================
 
 import Docker from 'dockerode';
+import { PassThrough } from 'node:stream';
 import { logger } from '../utils/logger.js';
 
 export class DockerLogStream {
@@ -40,7 +53,8 @@ export class DockerLogStream {
 
   /**
    * Stream logs from a Docker container, calling onLine for each new line.
-   * Captures the last 200 lines of existing logs plus follows new output.
+   * Uses docker.modem.demuxStream() to correctly parse the multiplexed
+   * Docker log format — critical for proper multi-frame chunk handling.
    */
   async streamLogs(
     containerName: string,
@@ -55,38 +69,39 @@ export class DockerLogStream {
       const info = await container.inspect();
       logger.info(`Connected to container: ${info.Name} (${info.Id.slice(0, 12)})`);
 
-      // Start from 60 seconds ago to catch recent events on reconnect,
-      // and also tail the last 200 lines for initial context
-      const sinceTimestamp = Math.floor(Date.now() / 1000) - 60;
+      // Capture the last 5 minutes of logs + tail 500 lines for initial context.
+      // 5 min window ensures we catch recent peer events even on a quiet network.
+      const sinceTimestamp = Math.floor(Date.now() / 1000) - 300;
 
-      const stream = await container.logs({
+      const rawStream = await container.logs({
         follow: true,
         stdout: true,
         stderr: true,
         since: sinceTimestamp,
-        tail: 200,
+        tail: 500,
         timestamps: false,
       });
 
-      // Track this stream for cleanup
-      this.activeStreams.set(containerName, stream as unknown as NodeJS.ReadableStream);
+      // -------------------------------------------------------
+      // CRITICAL FIX: Properly demultiplex the Docker log stream.
+      // docker.modem.demuxStream() correctly handles:
+      //   - Multiple frames per chunk
+      //   - Mixed stdout/stderr frames
+      //   - Variable frame sizes
+      // Without this, chunks with multiple frames result in
+      // corrupted log lines (null bytes and garbage at line start).
+      // -------------------------------------------------------
+      const stdout = new PassThrough();
+      const stderr = new PassThrough();
+      (this.docker as any).modem.demuxStream(rawStream, stdout, stderr);
+
+      this.activeStreams.set(containerName, rawStream as unknown as NodeJS.ReadableStream);
       this.lineCounters.set(containerName, 0);
 
       let buffer = '';
 
-      stream.on('data', (chunk: Buffer) => {
-        let data: string;
-
-        // Strip Docker stream header bytes if present
-        // Docker multiplexes stdout/stderr with an 8-byte header:
-        //   [stream_type(1)][0(3)][size(4)][payload]
-        if (chunk.length > 8 && (chunk[0] === 1 || chunk[0] === 2) && chunk[1] === 0 && chunk[2] === 0 && chunk[3] === 0) {
-          data = chunk.subarray(8).toString('utf-8');
-        } else {
-          data = chunk.toString('utf-8');
-        }
-
-        buffer += data;
+      const processChunk = (chunk: Buffer) => {
+        buffer += chunk.toString('utf-8');
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
@@ -103,13 +118,24 @@ export class DockerLogStream {
             }
           }
         }
+      };
+
+      stdout.on('data', processChunk);
+      stderr.on('data', processChunk);
+
+      stdout.on('error', (err: Error) => {
+        logger.error(`Stream error for ${containerName} (stdout): ${err.message}`);
+      });
+      stderr.on('error', (err: Error) => {
+        logger.error(`Stream error for ${containerName} (stderr): ${err.message}`);
       });
 
-      stream.on('error', (err: Error) => {
-        logger.error(`Stream error for ${containerName}: ${err.message}`);
+      // Watch the raw stream for end/error to trigger reconnect
+      (rawStream as any).on('error', (err: Error) => {
+        logger.error(`Raw stream error for ${containerName}: ${err.message}`);
       });
 
-      stream.on('end', () => {
+      (rawStream as any).on('end', () => {
         if (this._stopped) return;
         const total = this.lineCounters.get(containerName) || 0;
         logger.warn(`Stream ended for ${containerName} (${total} lines processed), will attempt reconnect...`);

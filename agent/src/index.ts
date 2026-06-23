@@ -58,7 +58,9 @@ async function main() {
 
       const info = SqliteReader.parseInfo(peer.info);
 
-      await supabase.upsertPeer({
+      // Use registerPeerFromSqlite (NOT upsertPeer) to avoid updating
+      // last_seen — that would break the heartbeat offline detection.
+      await supabase.registerPeerFromSqlite({
         rustdesk_id: peer.id,
         hostname: info.hostname,
         os: info.os,
@@ -107,7 +109,16 @@ async function main() {
   // -------------------------------------------------------
   // 2. HBBS log streaming — detect peer activity
   // -------------------------------------------------------
+  // Log first 5 raw HBBS lines so we can verify the format
+  // in production logs if parser issues arise.
+  let hbbsRawDebugCount = 0;
+
   dockerLogs.streamLogs(config.hbbsContainerName, async (line) => {
+    if (hbbsRawDebugCount < 5) {
+      logger.info(`[HBBS-RAW][${hbbsRawDebugCount + 1}/5] ${line}`);
+      hbbsRawDebugCount++;
+    }
+
     const event = parseHbbsLine(line);
     if (!event) return;
 
