@@ -309,6 +309,40 @@ export class SupabaseService {
     }
   }
 
+  /**
+   * Get RustDesk IDs of peers that have an active session on a given IP.
+   * Used for multi-peer correlation heuristics (NAT/office environments).
+   */
+  async getActivePeerIdsOnIp(ip: string): Promise<string[]> {
+    const { data, error } = await this.client
+      .from('sessions')
+      .select('rustdesk_id')
+      .eq('ip_public', ip)
+      .eq('is_active', true)
+      .order('connected_at', { ascending: false });
+
+    if (error || !data) return [];
+    return [...new Set(data.map(row => row.rustdesk_id))];
+  }
+
+  /**
+   * Given a list of RustDesk IDs, return the one with the most recent last_seen.
+   * Used for multi-peer correlation heuristics when multiple peers share the same IP.
+   */
+  async getMostRecentPeerFromIds(ids: string[]): Promise<string | null> {
+    if (ids.length === 0) return null;
+
+    const { data, error } = await this.client
+      .from('peers')
+      .select('rustdesk_id')
+      .in('rustdesk_id', ids)
+      .order('last_seen', { ascending: false })
+      .limit(1);
+
+    if (error || !data || data.length === 0) return null;
+    return data[0].rustdesk_id;
+  }
+
   // ---- Agent State ----
 
   async getState(key: string): Promise<unknown> {

@@ -10,13 +10,46 @@ export function useDashboardStats() {
   return useQuery({
     queryKey: ['dashboard-stats'],
     queryFn: async (): Promise<DashboardStats> => {
+      // Try the view first
       const { data, error } = await supabase
         .from('dashboard_stats')
         .select('*')
         .single();
 
-      if (error) throw error;
-      return data as DashboardStats;
+      if (!error && data) {
+        return data as DashboardStats;
+      }
+
+      // Fallback: compute stats directly from tables if view is inaccessible (RLS issue)
+      console.warn('dashboard_stats view failed, computing stats from tables:', error?.message);
+      const [peersResult, sessionsResult] = await Promise.all([
+        supabase.from('peers').select('status, last_seen', { count: 'exact' }),
+        supabase.from('sessions').select('duration_seconds, connected_at'),
+      ]);
+
+      const peers = peersResult.data || [];
+      const sessions = sessionsResult.data || [];
+
+      const now = new Date();
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+      const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+      const recentSessions = sessions.filter(s => s.connected_at >= weekAgo && s.duration_seconds != null);
+      const avgDuration = recentSessions.length > 0
+        ? Math.round(recentSessions.reduce((sum, s) => sum + (s.duration_seconds || 0), 0) / recentSessions.length)
+        : 0;
+
+      return {
+        total_peers: peers.length,
+        peers_online: peers.filter((p: any) => p.status === 'online').length,
+        peers_offline: peers.filter((p: any) => p.status === 'offline').length,
+        peers_banned: peers.filter((p: any) => p.status === 'banned').length,
+        sessions_today: sessions.filter(s => s.connected_at >= todayStart).length,
+        avg_session_duration: avgDuration,
+        last_activity: peers.length > 0
+          ? peers.reduce((max: string, p: any) => p.last_seen > max ? p.last_seen : max, '')
+          : null,
+      };
     },
     refetchInterval: 30_000,
   });

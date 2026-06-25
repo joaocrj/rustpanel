@@ -3,21 +3,15 @@
 # Compatible with Portainer + Traefik
 # =============================================================
 #
-# Deploy:
-#   docker stack deploy -c stack.yml rustpanel
+# Deploy via Portainer: Stacks → rustpanel → Update
+# Ou via CLI: docker stack deploy -c stack.yml rustpanel
 #
 # Prerequisites:
 #   - Docker Swarm mode enabled
 #   - Traefik running with entrypoint "websecure"
-#   - Network "traefik_public" exists (external)
+#   - Network "JoaoCRJNET" exists (external)
+#   - Network "rustdesk_net" exists (external)
 #   - RustDesk data volume accessible
-#
-# Environment Variables (set in Portainer or .env):
-#   - SUPABASE_URL
-#   - SUPABASE_SERVICE_ROLE_KEY
-#   - VITE_SUPABASE_URL
-#   - VITE_SUPABASE_ANON_KEY
-#   - RUSTDESK_DATA_PATH (host path to RustDesk data dir)
 #
 
 version: "3.8"
@@ -30,15 +24,22 @@ services:
     image: ghcr.io/joaocrj/rustpanel-frontend:latest
     networks:
       - JoaoCRJNET
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
     deploy:
       mode: replicated
       replicas: 1
       labels:
         - traefik.enable=true
+        - traefik.docker.network=JoaoCRJNET
         - traefik.http.routers.rustpanel.rule=Host(`rustpanel.joaocrj.com.br`)
         - traefik.http.routers.rustpanel.entrypoints=websecure
         - traefik.http.routers.rustpanel.tls=true
-        - traefik.http.routers.rustpanel.tls.certresolver=letsencrypt
+        - traefik.http.routers.rustpanel.tls.certresolver=letsencryptresolver
         - traefik.http.services.rustpanel.loadbalancer.server.port=80
         # Security headers middleware
         - traefik.http.middlewares.rustpanel-headers.headers.framedeny=true
@@ -72,15 +73,15 @@ services:
     networks:
       - rustdesk_net
     environment:
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - SUPABASE_URL=https://lznygimwqxfvfcpqntag.supabase.co
+      - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx6bnlnaW13cXhmdmZjcHFudGFnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjEyMjcwOSwiZXhwIjoyMDk3Njk4NzA5fQ.9x6z45kl-UhrB54xzf3HWupiuSjGp2bWa8oPZGNCpfU
       - HBBS_CONTAINER_NAME=${HBBS_CONTAINER_NAME:-hbbs}
       - HBBR_CONTAINER_NAME=${HBBR_CONTAINER_NAME:-hbbr}
       - SQLITE_DB_PATH=/data/db_v2.sqlite3
       - PEER_SYNC_INTERVAL_MS=60000
       - HEARTBEAT_TIMEOUT_MS=300000
       - HEARTBEAT_GRACE_MS=600000
-      - LOG_LEVEL=debug
+      - LOG_LEVEL=info
     deploy:
       mode: replicated
       replicas: 1
@@ -119,5 +120,3 @@ volumes:
   rustdesk_hbbs:
     external: true
     name: rustdesk_hbbs
-
-

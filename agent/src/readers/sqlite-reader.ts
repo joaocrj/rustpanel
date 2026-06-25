@@ -100,6 +100,10 @@ export class SqliteReader {
    * Returns the peer ID string or null if not found.
    * This is the critical correlation function — it bridges the gap
    * between relay IPs (from HBBR logs) and registered peer IDs (from SQLite).
+   * 
+   * NOTE: When multiple peers share the same IP (NAT/office), only the
+   * most recently updated one is returned. Use lookupPeerIdsByIp() to
+   * get all peers on an IP for smarter correlation.
    */
   lookupPeerIdByIp(ip: string): string | null {
     if (!existsSync(this.dbPath)) {
@@ -131,6 +135,44 @@ export class SqliteReader {
       // Table may not exist or query may fail
       logger.debug(`SQLite IP lookup failed for ${ip} (table may not exist)`);
       return null;
+    }
+  }
+
+  /**
+   * Look up ALL peer IDs associated with a given IP from the peer_ip table.
+   * Returns peer IDs ordered by most recent last_update first.
+   * 
+   * This is critical when multiple peers share the same public IP
+   * (e.g., NAT/office environments). The caller should use additional
+   * heuristics (active sessions, recent activity) to pick the correct peer.
+   */
+  lookupPeerIdsByIp(ip: string): string[] {
+    if (!existsSync(this.dbPath)) {
+      return [];
+    }
+
+    try {
+      const db = new Database(this.dbPath, { readonly: true });
+
+      const rows = db.prepare(`
+        SELECT peer_id, last_update
+        FROM peer_ip
+        WHERE ip = ?
+        ORDER BY last_update DESC
+      `).all(ip) as { peer_id: string; last_update: string }[];
+
+      db.close();
+
+      if (rows.length > 0) {
+        const ids = rows.map(r => r.peer_id);
+        logger.info(`SQLite IP lookup (multi): ${ip} → [${ids.join(', ')}] (${ids.length} peers)`);
+        return ids;
+      }
+
+      return [];
+    } catch {
+      logger.debug(`SQLite IP lookup (multi) failed for ${ip} (table may not exist)`);
+      return [];
     }
   }
 

@@ -1,30 +1,44 @@
 # =============================================================
-# RustPanel Agent - Dockerfile
-# Lightweight Node.js container with Docker socket access
+# RustPanel Agent - Dockerfile (Multi-stage, optimized)
 # =============================================================
 
-FROM node:20-alpine
+# ---- Stage 1: Build ----
+FROM node:20-alpine AS builder
 
-# Install build dependencies for better-sqlite3
 RUN apk add --no-cache python3 make g++ sqlite
 
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm install --no-audit
+RUN npm ci --no-audit
 
 COPY . .
 RUN npm run build
 
-# Prune devDependencies to keep the image lightweight
+# Prune devDependencies
 RUN npm prune --omit=dev && npm cache clean --force
 
-# Remove source and dev files
-RUN rm -rf src tsconfig.json
+# ---- Stage 2: Runtime ----
+FROM node:20-alpine
 
-# Non-root user (but needs docker socket access)
-# Note: In Docker Swarm, the socket is mounted with proper permissions
+# Runtime deps for better-sqlite3 (only sqlite-libs, not build tools)
+RUN apk add --no-cache sqlite-libs
+
+WORKDIR /app
+
+# Copy only production artifacts from builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package.json ./
 
 ENV NODE_ENV=production
+
+# Run as root for Docker socket access (/var/run/docker.sock).
+# The socket is mounted read-only (:ro) and the container has no
+# network exposure, so running as root is acceptable here.
+# To run as non-root, rebuild with --build-arg RUN_AS=node and
+# ensure the docker GID matches (getent group docker | cut -d: -f3).
+ARG RUN_AS=root
+USER ${RUN_AS}
 
 CMD ["node", "dist/index.js"]

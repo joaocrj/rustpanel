@@ -67,45 +67,12 @@ export function parseHbbrLine(line: string): HbbrEvent | null {
   const tsMatch = line.match(patterns.timestamp);
   const timestamp = tsMatch ? new Date(tsMatch[1]) : new Date();
 
-  // 1. Relay request (Modern/Pro)
-  const requestMatch = line.match(patterns.relayRequest);
-  if (requestMatch) {
-    return {
-      type: 'relay_request',
-      timestamp,
-      uuid: requestMatch[1],
-      ip: requestMatch[2],
-      port: parseInt(requestMatch[3], 10),
-      raw: line,
-    };
-  }
+  // NOTE: Paired checks come BEFORE request checks because
+  // "Relayrequest ... got paired" would be falsely matched by
+  // the simpler request regex. We check the more specific
+  // (paired) patterns first.
 
-  // 1.1 Relay request (OSS — no space: "Relayrequest")
-  const requestNoSpaceMatch = line.match(patterns.relayRequestNoSpace);
-  if (requestNoSpaceMatch) {
-    return {
-      type: 'relay_request',
-      timestamp,
-      uuid: requestNoSpaceMatch[1],
-      ip: requestNoSpaceMatch[2],
-      port: parseInt(requestNoSpaceMatch[3], 10),
-      raw: line,
-    };
-  }
-
-  // 1.2 Relay request (Simple/OSS)
-  const requestSimpleMatch = line.match(patterns.relayRequestSimple);
-  if (requestSimpleMatch) {
-    return {
-      type: 'relay_request',
-      timestamp,
-      uuid: requestSimpleMatch[1],
-      ip: requestSimpleMatch[2],
-      raw: line,
-    };
-  }
-
-  // 2. Relay paired (Modern/Pro)
+  // 1. Relay paired (Modern/Pro)
   const pairedMatch = line.match(patterns.relayPaired);
   if (pairedMatch) {
     // Track for "Both are raw" correlation
@@ -121,7 +88,7 @@ export function parseHbbrLine(line: string): HbbrEvent | null {
     };
   }
 
-  // 2.1 Relay paired (OSS — no space: "Relayrequest ... got paired")
+  // 1.1 Relay paired (OSS — no space: "Relayrequest ... got paired")
   const pairedNoSpaceMatch = line.match(patterns.relayPairedNoSpace);
   if (pairedNoSpaceMatch) {
     lastPairedUuid = pairedNoSpaceMatch[1];
@@ -136,7 +103,7 @@ export function parseHbbrLine(line: string): HbbrEvent | null {
     };
   }
 
-  // 2.2 Relay paired (Simple/OSS)
+  // 1.2 Relay paired (Simple/OSS)
   const pairedSimpleMatch = line.match(patterns.relayPairedSimple);
   if (pairedSimpleMatch) {
     lastPairedUuid = pairedSimpleMatch[1];
@@ -147,6 +114,44 @@ export function parseHbbrLine(line: string): HbbrEvent | null {
       timestamp,
       uuid: pairedSimpleMatch[1],
       ip: pairedSimpleMatch[2],
+      raw: line,
+    };
+  }
+
+  // 2. Relay request (Modern/Pro)
+  const requestMatch = line.match(patterns.relayRequest);
+  if (requestMatch) {
+    return {
+      type: 'relay_request',
+      timestamp,
+      uuid: requestMatch[1],
+      ip: requestMatch[2],
+      port: parseInt(requestMatch[3], 10),
+      raw: line,
+    };
+  }
+
+  // 2.1 Relay request (OSS — no space: "Relayrequest")
+  const requestNoSpaceMatch = line.match(patterns.relayRequestNoSpace);
+  if (requestNoSpaceMatch) {
+    return {
+      type: 'relay_request',
+      timestamp,
+      uuid: requestNoSpaceMatch[1],
+      ip: requestNoSpaceMatch[2],
+      port: parseInt(requestNoSpaceMatch[3], 10),
+      raw: line,
+    };
+  }
+
+  // 2.2 Relay request (Simple/OSS)
+  const requestSimpleMatch = line.match(patterns.relayRequestSimple);
+  if (requestSimpleMatch) {
+    return {
+      type: 'relay_request',
+      timestamp,
+      uuid: requestSimpleMatch[1],
+      ip: requestSimpleMatch[2],
       raw: line,
     };
   }

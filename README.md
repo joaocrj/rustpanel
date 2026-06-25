@@ -103,6 +103,16 @@ docker stack deploy -c stack.yml rustpanel
 
 ---
 
+### Scripts de Build e Deploy
+
+| Script | Descrição |
+|--------|------------|
+| `build-and-push.sh` | Build e push das imagens Docker para GHCR (Bash, CI/CD) |
+| `build-and-push.ps1` | Build e push das imagens Docker para registro (PowerShell) |
+| `deploy-vps.sh` | Deploy automático da stack em VPS |
+
+---
+
 ## 📄 Licença
 
 Uso privado.

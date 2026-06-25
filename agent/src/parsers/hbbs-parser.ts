@@ -39,7 +39,7 @@ const patterns = {
   ipChange: /IP change of\s+(\d{6,12})\s+from\s+\S+\s+to\s+\[?(?:::ffff:?)?([\d.]+)\]?:(\d+)/i,
 
   // Legacy: Registering client: ID=123456789, IP=1.2.3.4
-  legacyRegister: /Registering client:\s*ID=(\S+),?\s*IP=(\S+)/i,
+  legacyRegister: /Registering client:\s*ID=([\d]+),?\s*IP=(\S+)/i,
 
   // Tcp connection from [::ffff:1.2.3.4]:12345, ws: true/false
   tcpConnection: /Tcp connection from\s+\[?::ffff:?([\d.]+)\]?:(\d+)/i,

@@ -342,15 +342,51 @@ async function main() {
             // 1. Try in-memory IP map (instant, most reliable)
             let id = ipToPeerId.get(ip);
 
-            // 2. Fallback: query SQLite peer_ip table directly (most accurate)
+            // 2. Query SQLite peer_ip table (most accurate source)
             if (!id) {
-              const sqliteId = sqliteReader.lookupPeerIdByIp(ip);
-              if (sqliteId) {
-                id = sqliteId;
-                // Cache for future lookups
-                ipToPeerId.set(ip, sqliteId);
-                logger.info(`IP ${ip} resolved to peer ${sqliteId} via SQLite peer_ip table`);
+              // Look up ALL peers on this IP (may be multiple in NAT/office environments)
+              const sqliteIds = sqliteReader.lookupPeerIdsByIp(ip);
+              if (sqliteIds.length === 1) {
+                // Single peer on this IP — straightforward correlation
+                id = sqliteIds[0];
+                ipToPeerId.set(ip, id);
+                logger.info(`IP ${ip} resolved to peer ${id} via SQLite peer_ip table (single match)`);
+              } else if (sqliteIds.length > 1) {
+                // Multiple peers share this IP (NAT/office)
+                // Heuristic: prefer the peer that already has an active session
+                logger.info(`IP ${ip} has ${sqliteIds.length} peers in SQLite: [${sqliteIds.join(', ')}]. Applying heuristics...`);
+
+                let selectedId: string | null = null;
+
+                // Heuristic 1: Check which peers have active sessions on this IP
+                const activeSessionIds = await supabase.getActivePeerIdsOnIp(ip);
+                if (activeSessionIds && activeSessionIds.length > 0) {
+                  const match = sqliteIds.find(sid => activeSessionIds.includes(sid));
+                  if (match) {
+                    selectedId = match;
+                    logger.info(`Heuristic: Selected peer ${match} — has active session on IP ${ip}`);
+                  }
+                }
+
+                // Heuristic 2: Prefer the peer with the most recent last_seen
+                if (!selectedId) {
+                  const recentPeer = await supabase.getMostRecentPeerFromIds(sqliteIds);
+                  if (recentPeer) {
+                    selectedId = recentPeer;
+                    logger.info(`Heuristic: Selected peer ${recentPeer} — most recently active among candidates`);
+                  }
+                }
+
+                // Heuristic 3: Fallback to first (most recent last_update in SQLite)
+                if (!selectedId) {
+                  selectedId = sqliteIds[0];
+                  logger.info(`Heuristic: Selected peer ${selectedId} — first candidate (most recent SQLite last_update)`);
+                }
+
+                id = selectedId;
+                ipToPeerId.set(ip, selectedId);
               }
+              // If sqliteIds.length === 0, id stays undefined → try Supabase
             }
 
             // 3. Fallback: query Supabase peers table

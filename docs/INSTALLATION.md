@@ -85,7 +85,7 @@ git push -u origin develop
 cd frontend
 
 # Build da imagem (no Windows PowerShell, use crase ` no lugar de \ para quebra de linha)
-docker build --build-arg VITE_SUPABASE_URL=https://lznygimwqxfvfcpqntag.supabase.co --build-arg VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx6bnlnaW13cXhmdmZjcHFudGFnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIxMjI3MDksImV4cCI6MjA5NzY5ODcwOX0.Ct1L2LwB-Mhysg_SN7gfNUZ4Brdjt5XB-RNrUitVyy0 -t ghcr.io/joaocrj/rustpanel-frontend:latest .
+docker build --build-arg VITE_SUPABASE_URL=https://SEU-PROJETO.supabase.co --build-arg VITE_SUPABASE_ANON_KEY=SUA-ANON-KEY -t ghcr.io/SEU-USUARIO/rustpanel-frontend:latest .
 ```
 
 ### Agent
@@ -128,7 +128,7 @@ docker network create --driver overlay --attachable traefik_public
 ```bash
 # No servidor VPS, crie o arquivo de ambiente
 cat > /opt/rustpanel/.env << 'EOF'
-SUPABASE_URL=https://lznygimwqxfvfcpqntag.supabase.co
+SUPABASE_URL=https://SEU-PROJETO.supabase.co
 SUPABASE_SERVICE_ROLE_KEY=SUA-SERVICE-ROLE-KEY
 HBBS_CONTAINER_NAME=hbbs
 HBBR_CONTAINER_NAME=hbbr
@@ -154,7 +154,7 @@ docker stack deploy -c stack.yml rustpanel
 3. Nome: `rustpanel`
 4. Cole o conteúdo de `deploy/stack.yml`
 5. Adicione as variáveis de ambiente:
-   - `SUPABASE_URL` (https://lznygimwqxfvfcpqntag.supabase.co)
+   - `SUPABASE_URL` (ex: https://SEU-PROJETO.supabase.co)
    - `SUPABASE_SERVICE_ROLE_KEY` (sua service role key obtida do Supabase)
    - `HBBS_CONTAINER_NAME` (opcional, padrão: `hbbs`)
    - `HBBR_CONTAINER_NAME` (opcional, padrão: `hbbr`)
