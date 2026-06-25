@@ -197,6 +197,11 @@ async function main() {
   // -------------------------------------------------------
   // 2. HBBS log streaming — detect peer activity
   // -------------------------------------------------------
+  // Timestamp filter: ignore log events older than this to avoid
+  // re-processing historical logs on startup (prevents duplicate
+  // sessions from old relay events).
+  const startupTime = new Date();
+
   let hbbsRawDebugCount = 0;
   let hbbsLastLineTime = Date.now();
 
@@ -209,6 +214,17 @@ async function main() {
     }
 
     const event = parseHbbsLine(line);
+
+    // Skip historical events (from before agent startup) to avoid
+    // re-processing stale data on restart
+    if (event?.timestamp) {
+      const eventAge = startupTime.getTime() - event.timestamp.getTime();
+      if (eventAge > 120_000) {
+        // Event is more than 2 minutes old — skip
+        return;
+      }
+    }
+
     if (!event) return;
 
     if (event.type === 'peer_register' && event.peerId) {
@@ -268,6 +284,16 @@ async function main() {
         hbbrUnmatchedCount++;
       }
       return;
+    }
+
+    // Skip historical events (from before agent startup) to avoid
+    // creating duplicate sessions from old relay logs on restart.
+    if (event.timestamp) {
+      const eventAge = startupTime.getTime() - event.timestamp.getTime();
+      if (eventAge > 120_000) {
+        // Event is more than 2 minutes old — skip
+        return;
+      }
     }
 
     if (event.type === 'relay_request' && event.uuid && event.ip) {
