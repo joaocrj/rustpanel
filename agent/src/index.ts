@@ -71,14 +71,20 @@ async function main() {
 
       const info = SqliteReader.parseInfo(peer.info);
 
-      // Use registerPeerFromSqlite (NOT upsertPeer) to avoid updating
-      // last_seen — that would break the heartbeat offline detection.
       await supabase.registerPeerFromSqlite({
         rustdesk_id: peer.id,
         hostname: info.hostname,
         os: info.os,
         info: peer.info ? { raw: peer.info, version: info.version } : {},
       });
+
+      // Mark peer as recently seen — this is essential because:
+      // 1. HBBS only emits events when peers reconnect/change IP
+      // 2. If no HBBS events fire for hours, heartbeat marks peers offline
+      // 3. SQLite is the source of truth — if peer is in SQLite, it exists
+      // By refreshing last_seen here (with sync interval of 60s), we ensure
+      // peers stay "alive" as long as they're registered in SQLite.
+      await supabase.refreshPeerLastSeen(peer.id);
 
       if (!knownPeers.has(peer.id)) {
         newCount++;
@@ -118,7 +124,7 @@ async function main() {
       const logBuffer: Buffer = await container.logs({
         stdout: true,
         stderr: true,
-        tail: 5000,
+        tail: 20000,
         timestamps: false,
         follow: false,
       }) as Buffer;

@@ -107,6 +107,25 @@ export class SupabaseService {
   }
 
   /**
+   * Refresh last_seen WITHOUT changing status.
+   * Used by SQLite sync to keep peers "alive" in the heartbeat system.
+   * Unlike updatePeerLastSeen, this does NOT set status='online' —
+   * it only refreshes the timestamp so markOfflinePeers doesn't
+   * prematurely mark peers offline when HBBS hasn't emitted events.
+   */
+  async refreshPeerLastSeen(rustdeskId: string) {
+    const { error } = await this.client
+      .from('peers')
+      .update({ last_seen: new Date().toISOString() })
+      .eq('rustdesk_id', rustdeskId)
+      .neq('status', 'banned');
+
+    if (error && error.code !== 'PGRST116') {
+      logger.error(`Error refreshing last_seen for ${rustdeskId}: ${error.message}`);
+    }
+  }
+
+  /**
    * Mark a peer as recently seen (online).
    * Always updates last_seen and status.
    * Optionally updates ip_public if provided.
