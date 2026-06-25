@@ -146,6 +146,20 @@ export class SupabaseService {
   }
 
   /**
+   * Fetch ALL peer IDs that share a given IP.
+   * Used for multi-peer NAT heuristics.
+   */
+  async getAllPeerIdsByIp(ip: string): Promise<string[]> {
+    const { data, error } = await this.client
+      .from('peers')
+      .select('rustdesk_id')
+      .eq('ip_public', ip);
+
+    if (error || !data) return [];
+    return data.map((p: any) => p.rustdesk_id);
+  }
+
+  /**
    * Fetch all peers that have a public IP.
    * Used to initialize the IP map on start.
    */
