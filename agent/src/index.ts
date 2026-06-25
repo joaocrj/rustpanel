@@ -274,6 +274,20 @@ async function main() {
   // -------------------------------------------------------
   const activeRelays = new Map<string, { ip: string; timestamp: Date; pairedIp?: string }>();
 
+  // Track already-processed relay events to prevent duplicate
+  // session create/close calls when the same log line appears
+  // multiple times (e.g., Docker log rotation, multiplexed frames).
+  const processedUuids = new Set<string>();
+  // Periodically clean the set to prevent unbounded growth.
+  // UUIDs older than 10 minutes are safe to evict because any
+  // real duplicate would appear within seconds.
+  setInterval(() => {
+    if (processedUuids.size > 500) {
+      processedUuids.clear();
+      logger.debug('Cleared processed UUIDs cache');
+    }
+  }, 300_000); // every 5 minutes
+
   let hbbrUnmatchedCount = 0;
 
   dockerLogs.streamLogs(config.hbbrContainerName, async (line) => {
@@ -386,11 +400,18 @@ async function main() {
           if (rustdeskId && correlatedIp) {
             await supabase.updatePeerLastSeen(rustdeskId, correlatedIp);
 
-            await supabase.createSession({
-              rustdesk_id: rustdeskId,
-              ip_public: correlatedIp,
-              relay_uuid: event.uuid,
-            });
+            // Prevent duplicate session creation from repeated relay_paired events
+            const createKey = `create:${event.uuid}`;
+            if (!processedUuids.has(createKey)) {
+              processedUuids.add(createKey);
+              await supabase.createSession({
+                rustdesk_id: rustdeskId,
+                ip_public: correlatedIp,
+                relay_uuid: event.uuid,
+              });
+            } else {
+              logger.debug(`Skipping duplicate session create for UUID=${event.uuid}`);
+            }
           } else {
             logger.warn(`Could not correlate relay ${event.uuid} (IPs: ${candidateIps.join(', ')}) with any peer. IP map has ${ipToPeerId.size} entries.`);
           }
@@ -412,7 +433,14 @@ async function main() {
       let closedByUuid = false;
       for (const [uuid, data] of activeRelays) {
         if (data.ip === event.ip || data.pairedIp === event.ip) {
-          await supabase.closeSessionByUuid(uuid);
+          // Prevent duplicate close calls from repeated relay_closed events
+          const closeKey = `close:${uuid}`;
+          if (!processedUuids.has(closeKey)) {
+            processedUuids.add(closeKey);
+            await supabase.closeSessionByUuid(uuid);
+          } else {
+            logger.debug(`Skipping duplicate session close for UUID=${uuid}`);
+          }
           activeRelays.delete(uuid);
           closedByUuid = true;
         }
