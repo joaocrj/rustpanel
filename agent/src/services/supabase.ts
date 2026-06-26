@@ -73,6 +73,7 @@ export class SupabaseService {
     const record: Record<string, unknown> = {
       rustdesk_id: data.rustdesk_id,
       last_seen: new Date().toISOString(),
+      status: 'online',
     };
 
     if (data.hostname) record.hostname = data.hostname;

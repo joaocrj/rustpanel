@@ -1,0 +1,117 @@
+# =============================================================
+# RustPanel - Docker Swarm Stack (Imagens Locais)
+# Compatível com Portainer + Traefik
+# =============================================================
+#
+# IMPORTANTE: Antes de aplicar este stack, faa o build das imagens:
+#   cd /opt/rustpanel
+#   docker build -t rustpanel-frontend:local -f frontend/Dockerfile frontend/
+#   docker build -t rustpanel-agent:local -f agent/Dockerfile agent/
+#
+# =============================================================
+
+version: "3.8"
+
+services:
+  # ============================================
+  # Frontend (React + Nginx)
+  # ============================================
+  frontend:
+    image: rustpanel-frontend:local
+    networks:
+      - JoaoCRJNET
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      mode: replicated
+      replicas: 1
+      labels:
+        - traefik.enable=true
+        - traefik.docker.network=JoaoCRJNET
+        - traefik.http.routers.rustpanel.rule=Host(`rustpanel.joaocrj.com.br`)
+        - traefik.http.routers.rustpanel.entrypoints=websecure
+        - traefik.http.routers.rustpanel.tls=true
+        - traefik.http.routers.rustpanel.tls.certresolver=letsencryptresolver
+        - traefik.http.services.rustpanel.loadbalancer.server.port=80
+        - traefik.http.middlewares.rustpanel-headers.headers.framedeny=true
+        - traefik.http.middlewares.rustpanel-headers.headers.stsSeconds=31536000
+        - traefik.http.middlewares.rustpanel-headers.headers.stsIncludeSubdomains=true
+        - traefik.http.routers.rustpanel.middlewares=rustpanel-headers
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.25"
+        reservations:
+          memory: 32M
+          cpus: "0.05"
+      restart_policy:
+        condition: on-failure
+        delay: 5s
+        max_attempts: 3
+      update_config:
+        parallelism: 1
+        delay: 10s
+        order: start-first
+
+  # ============================================
+  # Monitoring Agent (Node.js)
+  # ============================================
+  agent:
+    image: rustpanel-agent:local
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - rustdesk_hbbs:/root:ro
+    networks:
+      - rustdesk_net
+    environment:
+      - SUPABASE_URL=https://lznygimwqxfvfcpqntag.supabase.co
+      - SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx6bnlnaW13cXhmdmZjcHFudGFnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjEyMjcwOSwiZXhwIjoyMDk3Njk4NzA5fQ.9x6z45kl-UhrB54xzf3HWupiuSjGp2bWa8oPZGNCpfU
+      - HBBS_CONTAINER_NAME=${HBBS_CONTAINER_NAME:-hbbs}
+      - HBBR_CONTAINER_NAME=${HBBR_CONTAINER_NAME:-hbbr}
+      - SQLITE_DB_PATH=/root/db_v2.sqlite3
+      - PEER_SYNC_INTERVAL_MS=60000
+      - HEARTBEAT_TIMEOUT_MS=300000
+      - HEARTBEAT_GRACE_MS=600000
+      - LOG_LEVEL=info
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.50"
+        reservations:
+          memory: 64M
+          cpus: "0.10"
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+      update_config:
+        parallelism: 1
+        delay: 10s
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  JoaoCRJNET:
+    external: true
+  rustdesk_net:
+    external: true
+    name: rustdesk_net
+
+# ============================================
+# Volumes
+# ============================================
+volumes:
+  rustdesk_hbbs:
+    external: true
+    name: rustdesk_hbbs

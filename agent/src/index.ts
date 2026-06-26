@@ -78,13 +78,11 @@ async function main() {
         info: peer.info ? { raw: peer.info, version: info.version } : {},
       });
 
-      // Mark peer as recently seen — this is essential because:
-      // 1. HBBS only emits events when peers reconnect/change IP
-      // 2. If no HBBS events fire for hours, heartbeat marks peers offline
-      // 3. SQLite is the source of truth — if peer is in SQLite, it exists
-      // By refreshing last_seen here (with sync interval of 60s), we ensure
-      // peers stay "alive" as long as they're registered in SQLite.
-      await supabase.refreshPeerLastSeen(peer.id);
+      // NOTE: We intentionally do NOT refresh last_seen from SQLite sync.
+      // Only HBBS log events (peer_register, peer_activity) should update
+      // last_seen. This ensures that only peers actively communicating with
+      // the RustDesk server show as "online", and the heartbeat can correctly
+      // mark inactive peers as "offline".
 
       if (!knownPeers.has(peer.id)) {
         newCount++;

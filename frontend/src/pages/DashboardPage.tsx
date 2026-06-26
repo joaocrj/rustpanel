@@ -19,7 +19,7 @@ import { formatRelativeTime, formatDuration } from '@/lib/utils';
 
 export function DashboardPage() {
   const { data: stats, isLoading: statsLoading } = useDashboardStats();
-  const { data: recentPeers } = usePeers({ pageSize: 5, sortBy: 'last_seen', sortDir: 'desc' });
+  const { data: activePeers } = usePeers({ status: 'online', pageSize: 5, sortBy: 'last_seen', sortDir: 'desc' });
   const { data: activeSessions } = useActiveSessions();
   const { data: agentStatus } = useAgentStatus();
 
@@ -150,7 +150,7 @@ export function DashboardPage() {
 
         {/* Two-column layout */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Recent Peers */}
+          {/* Active Peers */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -159,7 +159,7 @@ export function DashboardPage() {
           >
             <div className="flex items-center justify-between p-4 border-b border-[var(--color-border)]">
               <h3 className="text-sm font-semibold" style={{ color: 'var(--color-text-primary)' }}>
-                Peers Recentes
+                Peers Ativos
               </h3>
               <a
                 href="/peers"
@@ -180,14 +180,14 @@ export function DashboardPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {recentPeers?.peers.length === 0 && (
+                  {activePeers?.peers.length === 0 && (
                     <tr>
                       <td colSpan={4} className="text-center py-8" style={{ color: 'var(--color-text-muted)' }}>
-                        Nenhum peer detectado ainda. Aguardando o agent...
+                        Nenhum peer online no momento
                       </td>
                     </tr>
                   )}
-                  {recentPeers?.peers.map((peer) => (
+                  {activePeers?.peers.map((peer) => (
                     <tr key={peer.id}>
                       <td>
                         <div>
