@@ -103,6 +103,47 @@ services:
         parallelism: 1
         delay: 10s
 
+  # ============================================
+  # UDP Packet Capture (Rust)
+  # Captures update_pk packets from RustDesk HBBS
+  # ============================================
+  udp-capture:
+    image: ghcr.io/joaocrj/rustpanel-udp-capture:latest
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+      - NET_RAW
+    environment:
+      - UDP_CAPTURE__INTERFACE=${UDP_CAPTURE_INTERFACE:-ens3}
+      - UDP_CAPTURE__UDP_PORT=${UDP_CAPTURE_UDP_PORT:-21116}
+      - UDP_CAPTURE__SUPABASE_URL=https://lznygimwqxfvfcpqntag.supabase.co
+      - UDP_CAPTURE__SUPABASE_SERVICE_ROLE_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imx6bnlnaW13cXhmdmZjcHFudGFnIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MjEyMjcwOSwiZXhwIjoyMDk3Njk4NzA5fQ.9x6z45kl-UhrB54xzf3HWupiuSjGp2bWa8oPZGNCpfU
+      - UDP_CAPTURE__BATCH_SIZE=${UDP_CAPTURE_BATCH_SIZE:-50}
+      - UDP_CAPTURE__BATCH_TIMEOUT_MS=${UDP_CAPTURE_BATCH_TIMEOUT_MS:-5000}
+      - UDP_CAPTURE__LOG_LEVEL=${UDP_CAPTURE_LOG_LEVEL:-info}
+      - UDP_CAPTURE__ENABLE_METRICS=${UDP_CAPTURE_ENABLE_METRICS:-true}
+      - UDP_CAPTURE__METRICS_ADDR=${UDP_CAPTURE_METRICS_ADDR:-0.0.0.0:9090}
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.role == manager
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.50"
+        reservations:
+          memory: 64M
+          cpus: "0.10"
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+      update_config:
+        parallelism: 1
+        delay: 10s
+
 # ============================================
 # Networks
 # ============================================

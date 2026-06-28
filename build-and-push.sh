@@ -32,21 +32,24 @@ log_section() { echo -e "\n${GREEN}=============================================
 # ---- Parse args ----
 BUILD_FRONTEND=false
 BUILD_AGENT=false
+BUILD_UDP_CAPTURE=false
 
 for arg in "$@"; do
     case "$arg" in
         --no-push) PUSH=false ;;
         frontend)  BUILD_FRONTEND=true ;;
         agent)     BUILD_AGENT=true ;;
-        all)       BUILD_FRONTEND=true; BUILD_AGENT=true ;;
+        udp-capture) BUILD_UDP_CAPTURE=true ;;
+        all)       BUILD_FRONTEND=true; BUILD_AGENT=true; BUILD_UDP_CAPTURE=true ;;
         *)         log_error "Unknown argument: $arg"; exit 1 ;;
     esac
 done
 
-# Default: build both
-if ! $BUILD_FRONTEND && ! $BUILD_AGENT; then
+# Default: build all
+if ! $BUILD_FRONTEND && ! $BUILD_AGENT && ! $BUILD_UDP_CAPTURE; then
     BUILD_FRONTEND=true
     BUILD_AGENT=true
+    BUILD_UDP_CAPTURE=true
 fi
 
 # ---- Load .env if exists ----
@@ -104,13 +107,37 @@ if $BUILD_AGENT; then
     fi
 fi
 
+# ---- Build UDP Capture ----
+if $BUILD_UDP_CAPTURE; then
+    UDP_IMAGE="${REGISTRY}/${OWNER}/rustpanel-udp-capture:${TAG}"
+    log_section "Building UDP Capture: ${UDP_IMAGE}"
+
+    docker build \
+        -t "${UDP_IMAGE}" \
+        -f rustpanel-udp-capture/Dockerfile \
+        rustpanel-udp-capture/
+
+    log_info "UDP Capture image built: ${UDP_IMAGE}"
+
+    if $PUSH; then
+        log_info "Pushing ${UDP_IMAGE}..."
+        docker push "${UDP_IMAGE}"
+        log_info "UDP Capture pushed successfully"
+    else
+        log_warn "Skipping push (--no-push)"
+    fi
+fi
+
 # ---- Summary ----
 log_section "Docker Build Complete"
 if $BUILD_FRONTEND; then
-    echo "  Frontend: ${REGISTRY}/${OWNER}/rustpanel-frontend:${TAG}"
+    echo "  Frontend:      ${REGISTRY}/${OWNER}/rustpanel-frontend:${TAG}"
 fi
 if $BUILD_AGENT; then
-    echo "  Agent:    ${REGISTRY}/${OWNER}/rustpanel-agent:${TAG}"
+    echo "  Agent:         ${REGISTRY}/${OWNER}/rustpanel-agent:${TAG}"
+fi
+if $BUILD_UDP_CAPTURE; then
+    echo "  UDP Capture:   ${REGISTRY}/${OWNER}/rustpanel-udp-capture:${TAG}"
 fi
 echo ""
 if $PUSH; then
@@ -156,21 +183,24 @@ log_section() { echo -e "\n${GREEN}=============================================
 # ---- Parse args ----
 BUILD_FRONTEND=false
 BUILD_AGENT=false
+BUILD_UDP_CAPTURE=false
 
 for arg in "$@"; do
     case "$arg" in
         --no-push) PUSH=false ;;
         frontend)  BUILD_FRONTEND=true ;;
         agent)     BUILD_AGENT=true ;;
-        all)       BUILD_FRONTEND=true; BUILD_AGENT=true ;;
+        udp-capture) BUILD_UDP_CAPTURE=true ;;
+        all)       BUILD_FRONTEND=true; BUILD_AGENT=true; BUILD_UDP_CAPTURE=true ;;
         *)         log_error "Unknown argument: $arg"; exit 1 ;;
     esac
 done
 
-# Default: build both
-if ! $BUILD_FRONTEND && ! $BUILD_AGENT; then
+# Default: build all
+if ! $BUILD_FRONTEND && ! $BUILD_AGENT && ! $BUILD_UDP_CAPTURE; then
     BUILD_FRONTEND=true
     BUILD_AGENT=true
+    BUILD_UDP_CAPTURE=true
 fi
 
 # ---- Load .env if exists ----

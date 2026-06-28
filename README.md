@@ -6,113 +6,76 @@
 [![Supabase](https://img.shields.io/badge/Supabase-Backend-green)](https://supabase.com)
 [![React](https://img.shields.io/badge/React-Frontend-61DAFB)](https://react.dev)
 [![Docker Swarm](https://img.shields.io/badge/Docker-Swarm-2496ED)](https://docker.com)
+[![Node.js](https://img.shields.io/badge/Node.js-20-green)](https://nodejs.org)
+[![Rust](https://img.shields.io/badge/Rust-2021-orange)](https://rust-lang.org)
 
 ---
 
 ## 📋 Visão Geral
 
-RustPanel é uma plataforma administrativa para monitorar e gerenciar dispositivos conectados ao seu servidor privado RustDesk (OSS).
+RustPanel é uma plataforma administrativa completa para monitorar e gerenciar dispositivos conectados ao seu servidor privado **RustDesk OSS**. O sistema captura dados em tempo real dos logs do RustDesk (HBBS/HBBR), processa via agentes dedicados e apresenta tudo em uma interface web moderna com Supabase como backend.
 
-**URL de Produção:** `https://rustpanel.joaocrj.com.br`
+**URL de Produção:** `https://rustpanel.joaocrj.com.br`  
+**Registro Docker:** `ghcr.io/joaocrj/rustpanel-frontend`, `ghcr.io/joaocrj/rustpanel-agent`, `ghcr.io/joaocrj/rustpanel-udp-capture`
 
-### Funcionalidades
+### 🎯 Funcionalidades Principais
 
-- 📊 **Dashboard** — Métricas em tempo real (peers online, sessões, atividade)
-- 👥 **Gestão de Peers** — Tabela completa de dispositivos detectados
-- 🔗 **Sessões Ativas** — Monitoramento em tempo real de conexões relay
-- 🚫 **Banimentos** — Sistema de ban/unban com auditoria
-- 📝 **Auditoria** — Log completo de ações administrativas
-- 📤 **Exportação** — CSV e XLSX
-- 🔐 **Autenticação** — Supabase Auth com perfis (Super Admin, Admin, Operador)
-- ⚡ **Realtime** — Atualizações via Supabase Realtime (sem polling)
+| Módulo | Descrição | Status |
+|--------|-----------|--------|
+| **📊 Dashboard** | Métricas em tempo real (peers online/offline/banned, sessões ativas, duração média, última atividade) | ✅ Completo |
+| **👥 Gestão de Peers** | Tabela completa com busca, filtro por status, paginação, edição de alias, banimento direto | ✅ Completo |
+| **🔗 Sessões Ativas** | Grid de sessões relay em tempo real com IPs público/local, uptime, exportação CSV/XLSX | ✅ Completo |
+| **🚫 Banimentos** | CRUD completo de bans com motivo/observações, desbanimento, auditoria, exportação | ✅ Completo |
+| **📝 Auditoria** | Log imutável de todas ações admin (login, ban, unban, update, export) com paginação e filtro | ✅ Completo |
+| **📤 Exportação** | CSV e XLSX para peers, sessões, bans, auditoria (apenas Super Admin/Admin) | ✅ Completo |
+| **🔐 Autenticação** | Supabase Auth com 3 roles (Super Admin, Admin, Operador), RLS por role, auto-profile creation | ✅ Completo |
+| **⚡ Realtime** | Supabase Realtime nas tabelas `peers`, `sessions`, `bans` — sem polling | ✅ Completo |
+| **🛡️ UDP Capture** | Captura de pacotes UDP `update_pk` do HBBS em Rust (pnet) — descoberta de peers sem logs | ✅ Completo |
 
 ---
 
 ## 🏗️ Arquitetura
 
 ```
-┌──────────────────────────────────────────────┐
-│                  Internet                     │
-│          rustpanel.joaocrj.com.br             │
-└──────────────────┬───────────────────────────┘
-                   │ HTTPS (Traefik)
-┌──────────────────┴───────────────────────────┐
-│              Docker Swarm                     │
-│  ┌─────────────────┐  ┌──────────────────┐   │
-│  │  rustpanel-      │  │  rustpanel-      │   │
-│  │  frontend        │  │  agent           │   │
-│  │  (React/Nginx)   │  │  (Node.js)       │   │
-│  └────────┬────────┘  └──┬──────┬────────┘   │
-│           │              │      │             │
-│           │         Docker API  SQLite (ro)   │
-│           │              │      │             │
-│  ┌────────┴──────────────┴──────┴────────┐   │
-│  │     RustDesk Server (HBBS + HBBR)     │   │
-│  └───────────────────────────────────────┘   │
-└──────────────────┬───────────────────────────┘
-                   │ REST + Realtime
-┌──────────────────┴───────────────────────────┐
-│           Supabase (Cloud)                    │
-│   PostgreSQL · Auth · Realtime · Edge Fn      │
-└──────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                        Internet                                  │
+│                   rustpanel.joaocrj.com.br                       │
+└────────────────────────────┬────────────────────────────────────┘
+                             │ HTTPS (Traefik + TLS Let's Encrypt)
+┌────────────────────────────┴────────────────────────────────────┐
+│                      Docker Swarm                                │
+│  ┌─────────────────┐  ┌──────────────────┐  ┌───────────────┐  │
+│  │ rustpanel-       │  │ rustpanel-       │  │ rustpanel-    │  │
+│  │ frontend         │  │ agent            │  │ udp-capture   │  │
+│  │ (React/Nginx)    │  │ (Node.js/TS)     │  │ (Rust/pnet)   │  │
+│  │ Port: 80         │  │ Docker API +     │  │ host network  │  │
+│  │                  │  │ SQLite (ro)      │  │ CAP_NET_RAW   │  │
+│  └────────┬────────┘  └────────┬─────────┘  └───────┬───────┘  │
+│           │                    │                    │           │
+│           │         ┌──────────┴──────────┐       │           │
+│           │         ▼                     ▼       ▼           │
+│  ┌────────┴──────────────────────────────────────────────┐    │
+│  │           RustDesk Server (HBBS + HBBR)               │    │
+│  │  ┌─────────────────┐  ┌──────────────────────────┐   │    │
+│  │  │ hbbs (21115-    │  │ hbbr (21116-21119)       │   │    │
+│  │  │  21116)         │  │ Relay server             │   │    │
+│  │  │ ID/Rendezvous   │  │ Logs: relay_request,     │   │    │
+│  │  │ Logs: update_pk │  │ relay_paired, closed     │   │    │
+│  │  │ peer_register   │  │                          │   │    │
+│  │  └─────────────────┘  └──────────────────────────┘   │    │
+│  │  SQLite: /data/db_v2.sqlite3 (peer table)             │    │
+│  └────────────────────────────────────────────────────────┘    │
+└────────────────────────────┬────────────────────────────────────┘
+                             │ REST + Realtime (WebSocket)
+┌────────────────────────────┴────────────────────────────────────┐
+│                      Supabase (Cloud)                            │
+│  ┌──────────┐  ┌──────────┐  ┌───────────┐  ┌──────────────┐  │
+│  │PostgreSQL│  │  Auth    │  │ Realtime  │  │ Edge Funcs   │  │
+│  │(peers,   │  │(email/   │  │(peers,    │  │(futuro:      │  │
+│  │sessions, │  │ password,│  │ sessions, │  │  webhooks,   │  │
+│  │bans,     │  │ OAuth,   │  │ bans)     │  │  notificações)│  │
+│  │audit,    │  │ 3 roles) │  │           │  │              │  │
+│  │agent_st) │  │          │  │           │  │              │  │
+│  └──────────┘  └──────────┘  └───────────┘  └──────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
 ```
-
----
-
-## 📁 Estrutura do Projeto
-
-```
-rustpanel/
-├── frontend/          # React + Vite + TypeScript + shadcn/ui
-├── agent/             # Node.js agent de monitoramento
-├── deploy/            # Docker Swarm stack + configs
-└── README.md
-```
-
----
-
-## 🚀 Quick Start
-
-### Pré-requisitos
-
-- Node.js 20+
-- Docker + Docker Swarm
-- Conta Supabase
-- RustDesk Server OSS rodando
-
-### Desenvolvimento Local
-
-```bash
-# Frontend
-cd frontend
-npm install
-npm run dev
-
-# Agent
-cd agent
-npm install
-npm run dev
-```
-
-### Deploy (Docker Swarm)
-
-```bash
-cd deploy
-docker stack deploy -c stack.yml rustpanel
-```
-
----
-
-### Scripts de Build e Deploy
-
-| Script | Descrição |
-|--------|------------|
-| `build-and-push.sh` | Build e push das imagens Docker para GHCR (Bash, CI/CD) |
-| `build-and-push.ps1` | Build e push das imagens Docker para registro (PowerShell) |
-| `deploy-vps.sh` | Deploy automático da stack em VPS |
-
----
-
-## 📄 Licença
-
-Uso privado.
