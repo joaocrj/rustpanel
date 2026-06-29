@@ -55,10 +55,43 @@
 | Prioridade | Ação |
 |------------|------|
 | 🔴 Imediata | Aumentar `backfillIpMapFromHbbsLogs()` para 24h / 50k linhas (atual: 24h / 10k) |
-| 🟡 Curto prazo | Implementar **UDP Capture** (rustpanel-udp-capture) como fonte primária de IP Map — captura `update_pk` direto da rede, independente de logs Docker |
-| 🟢 Médio prazo | Correlacionar por **heurística multi-peer NAT**: se IP tem múltiplos peers ativos, usar `last_seen` mais recente (já existe `getMostRecentPeerFromIds` no supabase.ts) |
+| 🟡 Curto prazo | Melhorar heurística de correlação: usar **múltiplas fontes** (IP Map + `peers.ip_public` + backfill) e **heurística multi-peer NAT** para resolver ambiguidade |
+| 🟢 Médio prazo | Ajustar `heartbeat_grace_ms` por peer (adicionar coluna `heartbeat_grace_ms` em `peers`) permitindo controle individual para conexões instáveis |
 ---
 
+
+
+## ⚠️ UDP Capture: Tentativa abandonada
+> **❌ NÃO IMPLEMENTADO EM PRODUÇÃO -** Hostinger VPS OpenVZ **sem suporte a CAP_NET_RAW**
+
+### 🔍 O que foi tentado
+- Implementação **rustpanel-udp-capture** (Rust + pnet) completa ✅
+- Build da imagem Docker ✅
+- Deploy em Swarm (`network_mode: host`) ✅
+- Testes iniciais OK em localhost/windows ✅
+
+### ❌ Por que falhou
+- **Hostinger VPS usa OpenVZ/LXC** com kernel compartilhado privado
+- **Módulo af_packet do kernel NÃO disponível**:
+  ```bash
+  modprobe af_packet
+  # ERROR: Module af_packet not found
+  ```
+- Captura raw sockets (`CAP_NET_RAW`) bloqueada pela virtualização
+- Mesmo com `--network host`, AF_PACKET não funciona em contêineres OpenVZ
+
+### 📋 Lições aprendidas
+1. **Verificar virtualização do VPS antes**: use `systemd-detect-virt` ou `dmidecode -s system-product-name`
+2. **Testar módulos do kernel primeiro**: `lsmod | grep af_packet`
+3. **KVM é mandatório** para captura raw (DigitalOcean/Vultr/Hetzner permitem)
+
+### ✅ Solução adotada
+- **Fortalecer Agent baseado em logs Docker** com:
+  - Backfill HBBS aumentado para **24h / 50k linhas**
+  - IP Map persistido **a cada 60s** no `agent_state`
+  - Heurística multi-peer NAT via `getMostRecentPeerFromIds`
+
+---
 ## 🟠 Altos (Degradam Experiência)
 
 ### 4. `register_pk` NÃO contém RustDesk ID
@@ -209,5 +242,4 @@
 | `PROJECT_CONTEXT.md` | Seção 8: "Problemas conhecidos / Pontos de atenção" |
 | `agent/src/index.ts` | Linhas 55-56 (IP Map), 268 (backfill), 506 (diagnostics) |
 | `agent/src/services/supabase.ts` | `getActivePeerIdsOnIp`, `getMostRecentPeerFromIds` |
-| `deploy/stack.yml` | Service `agent` placement + `udp-capture` |
-| `rustpanel-udp-capture/src/main.rs` | Packet loop + batcher |
+| `deploy/stack.yml` | Service `agent` placement |

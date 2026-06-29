@@ -32,175 +32,21 @@ log_section() { echo -e "\n${GREEN}=============================================
 # ---- Parse args ----
 BUILD_FRONTEND=false
 BUILD_AGENT=false
-BUILD_UDP_CAPTURE=false
 
 for arg in "$@"; do
     case "$arg" in
         --no-push) PUSH=false ;;
         frontend)  BUILD_FRONTEND=true ;;
         agent)     BUILD_AGENT=true ;;
-        udp-capture) BUILD_UDP_CAPTURE=true ;;
-        all)       BUILD_FRONTEND=true; BUILD_AGENT=true; BUILD_UDP_CAPTURE=true ;;
+        all)       BUILD_FRONTEND=true; BUILD_AGENT=true ;;
         *)         log_error "Unknown argument: $arg"; exit 1 ;;
     esac
 done
 
 # Default: build all
-if ! $BUILD_FRONTEND && ! $BUILD_AGENT && ! $BUILD_UDP_CAPTURE; then
+if ! $BUILD_FRONTEND && ! $BUILD_AGENT; then
     BUILD_FRONTEND=true
     BUILD_AGENT=true
-    BUILD_UDP_CAPTURE=true
-fi
-
-# ---- Load .env if exists ----
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$SCRIPT_DIR"
-
-if [ -f .env ]; then
-    log_info "Loading .env file..."
-    set -a
-    source .env
-    set +a
-fi
-
-# ---- Build Frontend ----
-if $BUILD_FRONTEND; then
-    FRONTEND_IMAGE="${REGISTRY}/${OWNER}/rustpanel-frontend:${TAG}"
-    log_section "Building Frontend: ${FRONTEND_IMAGE}"
-
-    docker build \
-        --build-arg VITE_SUPABASE_URL="${VITE_SUPABASE_URL:-}" \
-        --build-arg VITE_SUPABASE_ANON_KEY="${VITE_SUPABASE_ANON_KEY:-}" \
-        -t "${FRONTEND_IMAGE}" \
-        -f frontend/Dockerfile \
-        frontend/
-
-    log_info "Frontend image built: ${FRONTEND_IMAGE}"
-
-    if $PUSH; then
-        log_info "Pushing ${FRONTEND_IMAGE}..."
-        docker push "${FRONTEND_IMAGE}"
-        log_info "Frontend pushed successfully"
-    else
-        log_warn "Skipping push (--no-push)"
-    fi
-fi
-
-# ---- Build Agent ----
-if $BUILD_AGENT; then
-    AGENT_IMAGE="${REGISTRY}/${OWNER}/rustpanel-agent:${TAG}"
-    log_section "Building Agent: ${AGENT_IMAGE}"
-
-    docker build \
-        -t "${AGENT_IMAGE}" \
-        -f agent/Dockerfile \
-        agent/
-
-    log_info "Agent image built: ${AGENT_IMAGE}"
-
-    if $PUSH; then
-        log_info "Pushing ${AGENT_IMAGE}..."
-        docker push "${AGENT_IMAGE}"
-        log_info "Agent pushed successfully"
-    else
-        log_warn "Skipping push (--no-push)"
-    fi
-fi
-
-# ---- Build UDP Capture ----
-if $BUILD_UDP_CAPTURE; then
-    UDP_IMAGE="${REGISTRY}/${OWNER}/rustpanel-udp-capture:${TAG}"
-    log_section "Building UDP Capture: ${UDP_IMAGE}"
-
-    docker build \
-        -t "${UDP_IMAGE}" \
-        -f rustpanel-udp-capture/Dockerfile \
-        rustpanel-udp-capture/
-
-    log_info "UDP Capture image built: ${UDP_IMAGE}"
-
-    if $PUSH; then
-        log_info "Pushing ${UDP_IMAGE}..."
-        docker push "${UDP_IMAGE}"
-        log_info "UDP Capture pushed successfully"
-    else
-        log_warn "Skipping push (--no-push)"
-    fi
-fi
-
-# ---- Summary ----
-log_section "Docker Build Complete"
-if $BUILD_FRONTEND; then
-    echo "  Frontend:      ${REGISTRY}/${OWNER}/rustpanel-frontend:${TAG}"
-fi
-if $BUILD_AGENT; then
-    echo "  Agent:         ${REGISTRY}/${OWNER}/rustpanel-agent:${TAG}"
-fi
-if $BUILD_UDP_CAPTURE; then
-    echo "  UDP Capture:   ${REGISTRY}/${OWNER}/rustpanel-udp-capture:${TAG}"
-fi
-echo ""
-if $PUSH; then
-    log_info "Images pushed to ${REGISTRY}/${OWNER}"
-else
-    log_warn "Images NOT pushed (use without --no-push to push)"
-fi
-echo ""
-</content>
-<write_to_file>
-<path>build-and-push.sh</path>
-<content>#!/usr/bin/env bash
-# =============================================================
-# RustPanel - Build & Push Docker Images
-# =============================================================
-# Usage:
-#   ./build-and-push.sh              # Build both images and push
-#   ./build-and-push.sh --no-push    # Build only, skip push
-#   ./build-and-push.sh frontend     # Build frontend only
-#   ./build-and-push.sh agent        # Build agent only
-# =============================================================
-
-set -euo pipefail
-
-# ---- Config ----
-REGISTRY="${REGISTRY:-ghcr.io}"
-OWNER="${OWNER:-joaocrj}"
-TAG="${TAG:-latest}"
-PUSH="${PUSH:-true}"
-
-# ---- Colors ----
-RED='\033[0;31m'
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
-
-# ---- Functions ----
-log_info()    { echo -e "${GREEN}[INFO]${NC}  $*"; }
-log_warn()    { echo -e "${YELLOW}[WARN]${NC}  $*"; }
-log_error()   { echo -e "${RED}[ERROR]${NC} $*"; }
-log_section() { echo -e "\n${GREEN}============================================================${NC}"; echo -e "${GREEN} $*${NC}"; echo -e "${GREEN}============================================================${NC}\n"; }
-
-# ---- Parse args ----
-BUILD_FRONTEND=false
-BUILD_AGENT=false
-BUILD_UDP_CAPTURE=false
-
-for arg in "$@"; do
-    case "$arg" in
-        --no-push) PUSH=false ;;
-        frontend)  BUILD_FRONTEND=true ;;
-        agent)     BUILD_AGENT=true ;;
-        udp-capture) BUILD_UDP_CAPTURE=true ;;
-        all)       BUILD_FRONTEND=true; BUILD_AGENT=true; BUILD_UDP_CAPTURE=true ;;
-        *)         log_error "Unknown argument: $arg"; exit 1 ;;
-    esac
-done
-
-# Default: build all
-if ! $BUILD_FRONTEND && ! $BUILD_AGENT && ! $BUILD_UDP_CAPTURE; then
-    BUILD_FRONTEND=true
-    BUILD_AGENT=true
-    BUILD_UDP_CAPTURE=true
 fi
 
 # ---- Load .env if exists ----
@@ -267,6 +113,7 @@ if $BUILD_AGENT; then
     echo "  Agent:    ${REGISTRY}/${OWNER}/rustpanel-agent:${TAG}"
 fi
 echo ""
+
 if $PUSH; then
     log_info "Images pushed to ${REGISTRY}/${OWNER}"
 else

@@ -16,7 +16,7 @@
 RustPanel é uma plataforma administrativa completa para monitorar e gerenciar dispositivos conectados ao seu servidor privado **RustDesk OSS**. O sistema captura dados em tempo real dos logs do RustDesk (HBBS/HBBR), processa via agentes dedicados e apresenta tudo em uma interface web moderna com Supabase como backend.
 
 **URL de Produção:** `https://rustpanel.joaocrj.com.br`  
-**Registro Docker:** `ghcr.io/joaocrj/rustpanel-frontend`, `ghcr.io/joaocrj/rustpanel-agent`, `ghcr.io/joaocrj/rustpanel-udp-capture`
+**Registro Docker:** `ghcr.io/joaocrj/rustpanel-frontend`, `ghcr.io/joaocrj/rustpanel-agent`
 
 ### 🎯 Funcionalidades Principais
 
@@ -30,7 +30,6 @@ RustPanel é uma plataforma administrativa completa para monitorar e gerenciar d
 | **📤 Exportação** | CSV e XLSX para peers, sessões, bans, auditoria (apenas Super Admin/Admin) | ✅ Completo |
 | **🔐 Autenticação** | Supabase Auth com 3 roles (Super Admin, Admin, Operador), RLS por role, auto-profile creation | ✅ Completo |
 | **⚡ Realtime** | Supabase Realtime nas tabelas `peers`, `sessions`, `bans` — sem polling | ✅ Completo |
-| **🛡️ UDP Capture** | Captura de pacotes UDP `update_pk` do HBBS em Rust (pnet) — descoberta de peers sem logs | ✅ Completo |
 
 ---
 
@@ -44,16 +43,16 @@ RustPanel é uma plataforma administrativa completa para monitorar e gerenciar d
                              │ HTTPS (Traefik + TLS Let's Encrypt)
 ┌────────────────────────────┴────────────────────────────────────┐
 │                      Docker Swarm                                │
-│  ┌─────────────────┐  ┌──────────────────┐  ┌───────────────┐  │
-│  │ rustpanel-       │  │ rustpanel-       │  │ rustpanel-    │  │
-│  │ frontend         │  │ agent            │  │ udp-capture   │  │
-│  │ (React/Nginx)    │  │ (Node.js/TS)     │  │ (Rust/pnet)   │  │
-│  │ Port: 80         │  │ Docker API +     │  │ host network  │  │
-│  │                  │  │ SQLite (ro)      │  │ CAP_NET_RAW   │  │
-│  └────────┬────────┘  └────────┬─────────┘  └───────┬───────┘  │
+│  ┌─────────────────┐  ┌──────────────────┐                      │
+│  │ rustpanel-       │  │ rustpanel-       │                      │
+│  │ frontend         │  │ agent            │                      │
+│  │ (React/Nginx)    │  │ (Node.js/TS)     │                      │
+│  │ Port: 80         │  │ Docker API +     │                      │
+│  │                  │  │ SQLite (ro)      │                      │
+│  └────────┬────────┘  └────────┬─────────┘                      │
 │           │                    │                    │           │
-│           │         ┌──────────┴──────────┐       │           │
-│           │         ▼                     ▼       ▼           │
+│           │         ┌──────────┴──────────┐                    │
+│           │         ▼                     ▼                    │
 │  ┌────────┴──────────────────────────────────────────────┐    │
 │  │           RustDesk Server (HBBS + HBBR)               │    │
 │  │  ┌─────────────────┐  ┌──────────────────────────┐   │    │

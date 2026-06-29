@@ -1,6 +1,6 @@
 # 📊 Estado Atual das Implementações
 
-> **Versão:** 3.0 (Agent v3 + UDP Capture)  
+> **Versão:** 3.0 (Agent v3)  
 > **Data:** 2026-06-28  
 > **Ambiente:** Produção em `https://rustpanel.joaocrj.com.br` (Docker Swarm + Supabase Cloud)
 
@@ -12,7 +12,6 @@
 |--------|--------|--------|------------------|-----------------|
 | **Frontend** | 1.0.0 | ✅ Completo | — | ✅ `ghcr.io/joaocrj/rustpanel-frontend:latest` |
 | **Agent (Node.js)** | 3.0.0 | ✅ Completo | 82 unit tests (parsers) | ✅ `ghcr.io/joaocrj/rustpanel-agent:latest` |
-| **UDP Capture (Rust)** | 0.1.0 | ✅ Completo | 6 unit tests | ✅ `ghcr.io/joaocrj/rustpanel-udp-capture:latest` |
 | **Supabase Schema** | 001 | ✅ Aplicado | — | ✅ Migração 001 executada |
 | **Docker Swarm Stack** | — | ✅ Produção | — | ✅ `deploy/stack.yml` |
 | **CI/CD Scripts** | — | ✅ Funcional | — | ✅ Bash + PowerShell |
@@ -278,13 +277,9 @@ ALTER PUBLICATION supabase_realtime ADD TABLE bans;
 | Dockerode | 4.x | `agent/package.json` |
 | Better-SQLite3 | 9.x | `agent/package.json` |
 | Pino (logger) | Custom | `agent/src/utils/logger.ts` |
-| Rust | 1.82+ | `rustpanel-udp-capture/Cargo.toml` |
-| pnet | 0.35 | `Cargo.toml` |
-| Tokio | 1.38 | `Cargo.toml` |
-| Reqwest | 0.11.27 (pinned) | `Cargo.toml` |
-| Config (Rust) | 0.14 | `Cargo.toml` |
-| Tracing | 0.1 | `Cargo.toml` |
-| Metrics | 0.21 | `Cargo.toml` |
+| Dockerode | 4.x | `agent/package.json` |
+| Better-SQLite3 | 9.x | `agent/package.json` |
+| Pino (logger) | Custom | `agent/src/utils/logger.ts` |
 
 ---
 
